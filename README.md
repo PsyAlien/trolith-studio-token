@@ -1,91 +1,86 @@
-Triolith Genesis Engine — MVP Vertical Slice
+<div align="center">
 
-This repository contains a minimal but complete technical demo of the Triolith Genesis Engine philosophy:
-a controlled studio token economy with observability, guardrails, and off-chain bridge workflows.
+# Triolith Genesis Engine — MVP Vertical Slice
 
-This is not a production system.
-It is a vertical slice MVP designed to prove architecture, flows, and traceability.
+**A controlled studio token economy with observability, guardrails, and off-chain bridge workflows**
 
-🎯 Project Goal (Simple Words)
+---
+
+> **This is not a production system.**  
+> It is a vertical slice MVP designed to prove architecture, flows, and traceability.
+
+</div>
+
+---
+
+## 🎯 Project Goal (Simple Words)
 
 Build a small but real system that shows:
 
-How players buy and sell a studio token safely
+- How players buy and sell a studio token safely
+- How tokens are spent in games and tracked on-chain
+- How off-chain assets (BTC) can be credited and minted in a controlled way
+- How analytics & reporting make the economy observable
 
-How tokens are spent in games and tracked on-chain
+**No speculation.**  
+**No DeFi complexity.**  
+**No frontend needed.**
 
-How off-chain assets (BTC) can be credited and minted in a controlled way
+---
 
-How analytics & reporting make the economy observable
+## 🧱 System Overview
 
-No speculation.
-No DeFi complexity.
-No frontend needed.
+### On-chain (Solidity / Foundry)
 
-🧱 System Overview
-On-chain (Solidity / Foundry)
-
-StudioToken (ERC-20)
-The studio-wide token (GEN / TST).
+#### **StudioToken (ERC-20)**
+The studio-wide token (GEN / TST).  
 Minted only by trusted contracts.
 
-TokenShop
+#### **TokenShop**
 Controlled buy/sell module.
 
-ETH + ERC-20 support (USDT-style)
+- ETH + ERC-20 support (USDT-style)
+- Fixed rates (admin-set)
+- Slippage protection
+- Per-transaction limits
+- Fees + treasury withdrawal
+- Unified events for analytics
 
-Fixed rates (admin-set)
-
-Slippage protection
-
-Per-transaction limits
-
-Fees + treasury withdrawal
-
-Unified events for analytics
-
-GameSpender
+#### **GameSpender**
 Optional game spending module.
 
-Burns or routes GEN
+- Burns or routes GEN
+- Emits Spent events
+- Makes in-game spending visible on-chain
 
-Emits Spent events
+### Off-chain (Node.js)
 
-Makes in-game spending visible on-chain
-
-Off-chain (Node.js)
-
-Indexer
+#### **Indexer**
 
 Reads on-chain events
 
 Produces:
-
-per-asset stats
-
-per-user net positions
-
-fee / treasury overview
-
-game spending summary
+- per-asset stats
+- per-user net positions
+- fee / treasury overview
+- game spending summary
 
 Exports CSV for reporting
 
-BTC Bridge (Skeleton)
+#### **BTC Bridge (Skeleton)**
 
-Off-chain ledger (ledger.json)
+- Off-chain ledger (ledger.json)
+- Prevents duplicate BTC credits
+- Tracks pending vs minted credits
+- Generates safe operatorMint commands
+- Status + CSV export
 
-Prevents duplicate BTC credits
+---
 
-Tracks pending vs minted credits
+## 📁 Repository Structure
 
-Generates safe operatorMint commands
-
-Status + CSV export
-
-📁 Repository Structure
+```
 trolith-studio-token
-
 ├── btc-bridge
 │   ├── btc_report.csv
 │   ├── index.js
@@ -108,156 +103,126 @@ trolith-studio-token
 │   ├── StudioToken.sol
 │   └── TokenShop.sol
 ├── test
-│    ├── GameSpender.t.sol
-│    ├── StudioToken.t.sol
-│    └── TokenShop.t.sol
+│   ├── GameSpender.t.sol
+│   ├── StudioToken.t.sol
+│   └── TokenShop.t.sol
 ├── DEMO.md
-├── README.md
+└── README.md
+```
 
-✅ What Is Already Implemented
-Phase 1 — Safety & Guardrails ✅
+---
 
-Pause / unpause
+## ✅ What Is Already Implemented
 
-Allowlist
+### Phase 1 — Safety & Guardrails ✅
 
-Slippage protection
+- Pause / unpause
+- Allowlist
+- Slippage protection
+- Per-transaction limits
+- Supported asset allowlist
 
-Per-transaction limits
+### Phase 2 — Configurable Pricing ✅
 
-Supported asset allowlist
+- No hardcoded prices
+- Admin-set buy/sell rates
+- Quote helpers
 
-Phase 2 — Configurable Pricing ✅
+### Phase 3 — Fees & Treasury Ops ✅
 
-No hardcoded prices
+- Configurable fees
+- Fees retained by shop
+- Admin ETH withdrawal
 
-Admin-set buy/sell rates
+### Phase 4 — Multi-Asset Support ✅
 
-Quote helpers
+- ETH + ERC-20 (USDT-style)
+- Decimal normalization
+- Unified events
 
-Phase 3 — Fees & Treasury Ops ✅
+### Phase 5 — Analytics & Reporting ✅
 
-Configurable fees
+- Per-asset summary
+- Per-user net positions
+- Game spending tracking
+- CSV export
 
-Fees retained by shop
+### Phase 6 — On-Chain Game Spending ✅
 
-Admin ETH withdrawal
+- GameSpender contract
+- Spent events
+- Reason-based tracking
 
-Phase 4 — Multi-Asset Support ✅
+### Phase 7 — BTC Bridge Skeleton ✅
 
-ETH + ERC-20 (USDT-style)
+- Off-chain BTC credit ledger
+- Duplicate tx protection
+- Pending vs minted flow
+- Operator-only minting
+- Status + CSV export
 
-Decimal normalization
+---
 
-Unified events
+## 🚫 Explicitly Out of Scope (By Design)
 
-Phase 5 — Analytics & Reporting ✅
+- Frontend UI
+- Real BTC node integration
+- Real KYC / AML
+- Fiat payments
+- AMMs, curves, or DeFi mechanics
+- Upgradeable proxies
 
-Per-asset summary
+**This MVP focuses on architecture and correctness, not polish.**
 
-Per-user net positions
+---
 
-Game spending tracking
+## ▶️ How to Run the Demo
 
-CSV export
+See **[DEMO.md](DEMO.md)** for a full step-by-step demo script:
 
-Phase 6 — On-Chain Game Spending ✅
+1. Deploy contracts
+2. Buy / sell GEN
+3. Spend GEN
+4. Simulate BTC deposit
+5. Operator mint
+6. Run analytics
+7. Export CSV
 
-GameSpender contract
+---
 
-Spent events
+## 🧭 Next Steps (Planned)
 
-Reason-based tracking
+### **Mint verification**
+- Confirm on-chain that operator mint succeeded
+- Prevent human error in bridge workflow
 
-Phase 7 — BTC Bridge Skeleton ✅
+### **Indexer: bridge + shop unified view**
+- Show operator mints alongside buys/sells/spends
 
-Off-chain BTC credit ledger
+### **Repo polish**
+- Clear scripts
+- Clean documentation
+- One-command demo
 
-Duplicate tx protection
+### **Optional (later)**
+- Minimal frontend
+- Oracle-based pricing
+- BTC automation
 
-Pending vs minted flow
+---
 
-Operator-only minting
+## 🧠 Design Philosophy
 
-Status + CSV export
+> Prefer clarity over cleverness  
+> Make economic flows observable  
+> Keep humans in control  
+> Build boring, auditable primitives  
 
-🚫 Explicitly Out of Scope (By Design)
+**This repo is meant to be read, understood, and extended.**
 
-Frontend UI
+---
 
-Real BTC node integration
+## 👤 Author / Context
 
-Real KYC / AML
-
-Fiat payments
-
-AMMs, curves, or DeFi mechanics
-
-Upgradeable proxies
-
-This MVP focuses on architecture and correctness, not polish.
-
-▶️ How to Run the Demo
-
-See DEMO.md for a full step-by-step demo script:
-
-Deploy contracts
-
-Buy / sell GEN
-
-Spend GEN
-
-Simulate BTC deposit
-
-Operator mint
-
-Run analytics
-
-Export CSV
-
-🧭 Next Steps (Planned)
-
-Mint verification
-
-Confirm on-chain that operator mint succeeded
-
-Prevent human error in bridge workflow
-
-Indexer: bridge + shop unified view
-
-Show operator mints alongside buys/sells/spends
-
-Repo polish
-
-Clear scripts
-
-Clean documentation
-
-One-command demo
-
-Optional (later)
-
-Minimal frontend
-
-Oracle-based pricing
-
-BTC automation
-
-🧠 Design Philosophy
-
-Prefer clarity over cleverness
-
-Make economic flows observable
-
-Keep humans in control
-
-Build boring, auditable primitives
-
-This repo is meant to be read, understood, and extended.
-
-
-
-👤 Author / Context
-
-Built as a learning-driven internship MVP for Triolith,
+Built as a learning-driven internship MVP for Triolith,  
 focused on understanding how a studio-level token economy can be built safely and transparently.
