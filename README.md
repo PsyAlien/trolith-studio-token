@@ -81,33 +81,21 @@ Exports CSV for reporting
 
 ```
 trolith-studio-token
-├── btc-bridge
-│   ├── btc_report.csv
-│   ├── index.js
-│   ├── ledger.json
-│   ├── package-lock.json
-│   └── package.json
-├── foundry.lock
-├── foundry.toml
-├── indexer
-│   ├── index.js
-│   ├── package-lock.json
-│   ├── package.json
-│   └── report.csv
-├── script
-│   ├── DeployMockUSDT.s.sol
-│   ├── DeployShop.s.sol
-│   └── DeploySpender.s.sol
-├── src
-│   ├── GameSpender.sol
-│   ├── StudioToken.sol
-│   └── TokenShop.sol
-├── test
-│   ├── GameSpender.t.sol
-│   ├── StudioToken.t.sol
-│   └── TokenShop.t.sol
+├── btc-bridge/
+  ├── index.js        # BTC credit & mint workflow
+  ├── ledger.json     # Off-chain ledger
+  └── package.json  
+
+├── indexer/
+  ├── index.js        # Analytics + reporting
+  └── package.json       
+├── script/           # Deployment scripts
+├── src/              # Solidity contracts
+├── test/             # Foundry tests
+
 ├── DEMO.md
 └── README.md
+
 ```
 
 ---
