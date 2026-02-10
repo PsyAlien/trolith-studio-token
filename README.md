@@ -1,66 +1,263 @@
-## Foundry
+Triolith Genesis Engine — MVP Vertical Slice
 
-**Foundry is a blazing fast, portable and modular toolkit for Ethereum application development written in Rust.**
+This repository contains a minimal but complete technical demo of the Triolith Genesis Engine philosophy:
+a controlled studio token economy with observability, guardrails, and off-chain bridge workflows.
 
-Foundry consists of:
+This is not a production system.
+It is a vertical slice MVP designed to prove architecture, flows, and traceability.
 
-- **Forge**: Ethereum testing framework (like Truffle, Hardhat and DappTools).
-- **Cast**: Swiss army knife for interacting with EVM smart contracts, sending transactions and getting chain data.
-- **Anvil**: Local Ethereum node, akin to Ganache, Hardhat Network.
-- **Chisel**: Fast, utilitarian, and verbose solidity REPL.
+🎯 Project Goal (Simple Words)
 
-## Documentation
+Build a small but real system that shows:
 
-https://book.getfoundry.sh/
+How players buy and sell a studio token safely
 
-## Usage
+How tokens are spent in games and tracked on-chain
 
-### Build
+How off-chain assets (BTC) can be credited and minted in a controlled way
 
-```shell
-$ forge build
-```
+How analytics & reporting make the economy observable
 
-### Test
+No speculation.
+No DeFi complexity.
+No frontend needed.
 
-```shell
-$ forge test
-```
+🧱 System Overview
+On-chain (Solidity / Foundry)
 
-### Format
+StudioToken (ERC-20)
+The studio-wide token (GEN / TST).
+Minted only by trusted contracts.
 
-```shell
-$ forge fmt
-```
+TokenShop
+Controlled buy/sell module.
 
-### Gas Snapshots
+ETH + ERC-20 support (USDT-style)
 
-```shell
-$ forge snapshot
-```
+Fixed rates (admin-set)
 
-### Anvil
+Slippage protection
 
-```shell
-$ anvil
-```
+Per-transaction limits
 
-### Deploy
+Fees + treasury withdrawal
 
-```shell
-$ forge script script/Counter.s.sol:CounterScript --rpc-url <your_rpc_url> --private-key <your_private_key>
-```
+Unified events for analytics
 
-### Cast
+GameSpender
+Optional game spending module.
 
-```shell
-$ cast <subcommand>
-```
+Burns or routes GEN
 
-### Help
+Emits Spent events
 
-```shell
-$ forge --help
-$ anvil --help
-$ cast --help
-```
+Makes in-game spending visible on-chain
+
+Off-chain (Node.js)
+
+Indexer
+
+Reads on-chain events
+
+Produces:
+
+per-asset stats
+
+per-user net positions
+
+fee / treasury overview
+
+game spending summary
+
+Exports CSV for reporting
+
+BTC Bridge (Skeleton)
+
+Off-chain ledger (ledger.json)
+
+Prevents duplicate BTC credits
+
+Tracks pending vs minted credits
+
+Generates safe operatorMint commands
+
+Status + CSV export
+
+📁 Repository Structure
+trolith-studio-token
+
+├── btc-bridge
+│   ├── btc_report.csv
+│   ├── index.js
+│   ├── ledger.json
+│   ├── package-lock.json
+│   └── package.json
+├── foundry.lock
+├── foundry.toml
+├── indexer
+│   ├── index.js
+│   ├── package-lock.json
+│   ├── package.json
+│   └── report.csv
+├── script
+│   ├── DeployMockUSDT.s.sol
+│   ├── DeployShop.s.sol
+│   └── DeploySpender.s.sol
+├── src
+│   ├── GameSpender.sol
+│   ├── StudioToken.sol
+│   └── TokenShop.sol
+├── test
+│    ├── GameSpender.t.sol
+│    ├── StudioToken.t.sol
+│    └── TokenShop.t.sol
+├── DEMO.md
+├── README.md
+
+✅ What Is Already Implemented
+Phase 1 — Safety & Guardrails ✅
+
+Pause / unpause
+
+Allowlist
+
+Slippage protection
+
+Per-transaction limits
+
+Supported asset allowlist
+
+Phase 2 — Configurable Pricing ✅
+
+No hardcoded prices
+
+Admin-set buy/sell rates
+
+Quote helpers
+
+Phase 3 — Fees & Treasury Ops ✅
+
+Configurable fees
+
+Fees retained by shop
+
+Admin ETH withdrawal
+
+Phase 4 — Multi-Asset Support ✅
+
+ETH + ERC-20 (USDT-style)
+
+Decimal normalization
+
+Unified events
+
+Phase 5 — Analytics & Reporting ✅
+
+Per-asset summary
+
+Per-user net positions
+
+Game spending tracking
+
+CSV export
+
+Phase 6 — On-Chain Game Spending ✅
+
+GameSpender contract
+
+Spent events
+
+Reason-based tracking
+
+Phase 7 — BTC Bridge Skeleton ✅
+
+Off-chain BTC credit ledger
+
+Duplicate tx protection
+
+Pending vs minted flow
+
+Operator-only minting
+
+Status + CSV export
+
+🚫 Explicitly Out of Scope (By Design)
+
+Frontend UI
+
+Real BTC node integration
+
+Real KYC / AML
+
+Fiat payments
+
+AMMs, curves, or DeFi mechanics
+
+Upgradeable proxies
+
+This MVP focuses on architecture and correctness, not polish.
+
+▶️ How to Run the Demo
+
+See DEMO.md for a full step-by-step demo script:
+
+Deploy contracts
+
+Buy / sell GEN
+
+Spend GEN
+
+Simulate BTC deposit
+
+Operator mint
+
+Run analytics
+
+Export CSV
+
+🧭 Next Steps (Planned)
+
+Mint verification
+
+Confirm on-chain that operator mint succeeded
+
+Prevent human error in bridge workflow
+
+Indexer: bridge + shop unified view
+
+Show operator mints alongside buys/sells/spends
+
+Repo polish
+
+Clear scripts
+
+Clean documentation
+
+One-command demo
+
+Optional (later)
+
+Minimal frontend
+
+Oracle-based pricing
+
+BTC automation
+
+🧠 Design Philosophy
+
+Prefer clarity over cleverness
+
+Make economic flows observable
+
+Keep humans in control
+
+Build boring, auditable primitives
+
+This repo is meant to be read, understood, and extended.
+
+
+
+👤 Author / Context
+
+Built as a learning-driven internship MVP for Triolith,
+focused on understanding how a studio-level token economy can be built safely and transparently.
