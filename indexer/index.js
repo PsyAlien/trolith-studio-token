@@ -1,25 +1,47 @@
+// indexer/index.js
+// ES module (requires "type":"module" in indexer/package.json)
+
 import { readFileSync, writeFileSync } from "node:fs";
 import { ethers } from "ethers";
 
-const RPC_URL = "http://127.0.0.1:8545";
+const RPC_URL = process.env.RPC || "http://127.0.0.1:8545";
 const SHOP_ADDRESS = process.env.SHOP;
-
-// Optional: pass SPENDER=0x... to include spend events
 const SPENDER_ADDRESS = process.env.SPENDER || null;
 
 if (!SHOP_ADDRESS) {
-  console.error("Missing SHOP env var. Example: SHOP=0x... node index.js");
+  console.error("Missing SHOP env var. Example:");
+  console.error("  SHOP=0x... node index.js");
+  console.error("Optional:");
+  console.error("  SPENDER=0x... (to include Spent events)");
+  console.error("  node index.js --csv report.csv");
   process.exit(1);
 }
 
+// --------- Load ABIs ---------
 const tokenShopArtifact = JSON.parse(
   readFileSync("../out/TokenShop.sol/TokenShop.json", "utf8")
 );
 const shopAbi = tokenShopArtifact.abi;
 
+// GameSpender is optional
+let spenderAbi = null;
+try {
+  const spenderArtifact = JSON.parse(
+    readFileSync("../out/GameSpender.sol/GameSpender.json", "utf8")
+  );
+  spenderAbi = spenderArtifact.abi;
+} catch {
+  // ok (user might not have GameSpender build artifact in this repo)
+}
+
 const provider = new ethers.JsonRpcProvider(RPC_URL);
 const shop = new ethers.Contract(SHOP_ADDRESS, shopAbi, provider);
+const spender =
+  SPENDER_ADDRESS && spenderAbi
+    ? new ethers.Contract(SPENDER_ADDRESS, spenderAbi, provider)
+    : null;
 
+// --------- Helpers ---------
 const ETH_ASSET = ethers.ZeroAddress;
 
 const fmtEth = (wei) => Number(ethers.formatEther(wei));
@@ -35,24 +57,41 @@ function asLowerAddr(x) {
 }
 
 function fmtAssetAmount(assetLower, amountRaw, decimals) {
-  if (assetLower === ETH_ASSET.toLowerCase()) return Number(ethers.formatEther(amountRaw));
+  if (assetLower === ETH_ASSET.toLowerCase()) return fmtEth(amountRaw);
   return Number(ethers.formatUnits(amountRaw, decimals));
 }
 
+// Cache decimals lookups so we don’t call the chain a lot
+const _decCache = new Map();
 async function getAssetDecimals(assetLower) {
-  if (assetLower === ETH_ASSET.toLowerCase()) return 18;
-  try {
-    return Number(await shop.assetDecimals(assetLower));
-  } catch {
+  const key = assetLower || ETH_ASSET.toLowerCase();
+  if (_decCache.has(key)) return _decCache.get(key);
+
+  if (key === ETH_ASSET.toLowerCase()) {
+    _decCache.set(key, 18);
     return 18;
   }
+
+  let d = 18;
+  try {
+    // TokenShop stores decimals in mapping assetDecimals(asset) -> uint8
+    d = Number(await shop.assetDecimals(key));
+  } catch {
+    d = 18;
+  }
+  _decCache.set(key, d);
+  return d;
 }
 
-function getNested(map, k1, k2, initFn) {
-  if (!map.has(k1)) map.set(k1, new Map());
-  const inner = map.get(k1);
-  if (!inner.has(k2)) inner.set(k2, initFn());
-  return inner.get(k2);
+function parseCsvFlag() {
+  const idx = process.argv.indexOf("--csv");
+  if (idx === -1) return null;
+  const path = process.argv[idx + 1];
+  if (!path) {
+    console.error("Missing CSV path. Example: node index.js --csv report.csv");
+    process.exit(1);
+  }
+  return path;
 }
 
 function csvEscape(v) {
@@ -63,52 +102,74 @@ function csvEscape(v) {
   return s;
 }
 
-// Minimal ABI for GameSpender Spent event (so we don't need artifact)
-const gameSpenderAbi = [
-  "event Spent(address indexed user, address indexed operator, address indexed treasury, uint256 amount, bytes32 reason)",
-];
-
+// --------- Main ---------
 async function main() {
   const latest = await provider.getBlockNumber();
 
-  // ---------------- Ops config ----------------
+  // Ops config (exists in newer versions)
   let feeBps = 0n;
   try {
     feeBps = await shop.feeBps();
-  } catch {}
+  } catch {
+    feeBps = 0n;
+  }
 
   const shopEthBalance = await provider.getBalance(SHOP_ADDRESS);
 
-  // ---------------- ETH pricing ----------------
+  // ETH rates (Phase 2+)
   let buyRateEth = 0n;
   let sellRateEth = 0n;
-  let quoteBuyGen = 0n;
-  let quoteSellEth = 0n;
-
   try {
     buyRateEth = await shop.buyRate(ETH_ASSET);
     sellRateEth = await shop.sellRate(ETH_ASSET);
-    quoteBuyGen = await shop.getQuoteBuyETH(ethers.parseEther("0.01"));
-    quoteSellEth = await shop.getQuoteSellToETH(ethers.parseUnits("10", 18));
-  } catch {}
+  } catch {
+    buyRateEth = 0n;
+    sellRateEth = 0n;
+  }
 
-  // ---------------- TokenShop events ----------------
+  // Quotes (gross)
+  let quoteBuyGen = 0n;
+  let quoteSellEth = 0n;
+  try {
+    quoteBuyGen = await shop.getQuoteBuyETH(ethers.parseEther("0.01"));
+    quoteSellEth = await shop.getQuoteSellToETH(
+      ethers.parseUnits("10", 18)
+    );
+  } catch {
+    quoteBuyGen = 0n;
+    quoteSellEth = 0n;
+  }
+
+  // --------- Fetch logs ---------
   const boughtLogs = await shop.queryFilter(shop.filters.Bought(), 0, latest);
   const soldLogs = await shop.queryFilter(shop.filters.Sold(), 0, latest);
 
-  // NEW: OperatorMinted events (Phase 7)
+  // Operator mints (Phase 7) — optional (older deployments might not have it)
   let opMintLogs = [];
   try {
-    // If the event doesn't exist on a deployment, this will throw; we handle gracefully.
-    opMintLogs = await shop.queryFilter(shop.filters.OperatorMinted(), 0, latest);
+    opMintLogs = await shop.queryFilter(
+      shop.filters.OperatorMinted?.() ?? "OperatorMinted",
+      0,
+      latest
+    );
   } catch {
     opMintLogs = [];
   }
 
-  // ---------------- Aggregations ----------------
+  // Spent events (Phase 6) — optional
+  let spendLogs = [];
+  if (spender) {
+    try {
+      spendLogs = await spender.queryFilter(spender.filters.Spent(), 0, latest);
+    } catch {
+      spendLogs = [];
+    }
+  }
 
-  // Per-asset aggregate (buy/sell)
+  // --------- Aggregate per-asset + per-user ---------
   const perAsset = new Map(); // assetLower -> stats
+  const perUser = new Map(); // userLower -> { assets: Map(assetLower -> stats), spendGen }
+
   const getAssetStats = (assetLower) => {
     const key = assetLower || ETH_ASSET.toLowerCase();
     if (!perAsset.has(key)) {
@@ -126,31 +187,41 @@ async function main() {
     return perAsset.get(key);
   };
 
-  // Per-user-per-asset aggregate
-  // userLower -> (assetLower -> stats)
-  const perUser = new Map();
-  const initUserAsset = () => ({
-    buys: 0,
-    sells: 0,
-    assetIn: 0n,   // asset spent (buys)
-    assetOut: 0n,  // asset received (sells)
-    genIn: 0n,     // GEN spent (sells)
-    genOut: 0n,    // GEN received (buys)
+  const getUser = (userLower) => {
+    if (!perUser.has(userLower)) {
+      perUser.set(userLower, {
+        assets: new Map(), // assetLower -> { buys,sells,asset_in,asset_out,gen_out,gen_in }
+        spendGen: 0n,
+        spendCount: 0,
+        opMintGen: 0n,
+        opMintCount: 0,
+      });
+    }
+    return perUser.get(userLower);
+  };
 
-    // Phase 6 (spending)
-    spends: 0,
-    genSpent: 0n,
-
-    // Phase 7 (operator mint)
-    opMints: 0,
-    genOpMinted: 0n,
-  });
+  const getUserAsset = (userLower, assetLower) => {
+    const u = getUser(userLower);
+    const key = assetLower || ETH_ASSET.toLowerCase();
+    if (!u.assets.has(key)) {
+      u.assets.set(key, {
+        buys: 0,
+        sells: 0,
+        asset_in: 0n,
+        asset_out: 0n,
+        gen_out: 0n,
+        gen_in: 0n,
+      });
+    }
+    return u.assets.get(key);
+  };
 
   // ---- Normalize BOUGHT logs across versions ----
   for (const ev of boughtLogs) {
     const args = ev.args ?? {};
-    // New version: { user, payAsset, amountIn, genOut }
-    // Old version: { buyer, paidWei, genOut }
+
+    // New: user, payAsset, amountIn, genOut
+    // Old: buyer, paidWei, genOut
     const user = args.user ?? args.buyer;
     const asset = args.payAsset ?? ETH_ASSET;
     const amountIn = args.amountIn ?? args.paidWei ?? 0n;
@@ -158,26 +229,26 @@ async function main() {
 
     const assetLower = asLowerAddr(asset) || ETH_ASSET.toLowerCase();
     const userLower = asLowerAddr(user);
+    if (!userLower) continue;
 
-    const a = getAssetStats(assetLower);
-    a.buys += 1;
-    a.amountIn += amountIn;
-    a.genOut += genOut;
-    if (userLower) a.usersBuy.add(userLower);
+    const s = getAssetStats(assetLower);
+    s.buys += 1;
+    s.amountIn += amountIn;
+    s.genOut += genOut;
+    s.usersBuy.add(userLower);
 
-    if (userLower) {
-      const u = getNested(perUser, userLower, assetLower, initUserAsset);
-      u.buys += 1;
-      u.assetIn += amountIn;
-      u.genOut += genOut;
-    }
+    const ua = getUserAsset(userLower, assetLower);
+    ua.buys += 1;
+    ua.asset_in += amountIn;
+    ua.gen_out += genOut;
   }
 
   // ---- Normalize SOLD logs across versions ----
   for (const ev of soldLogs) {
     const args = ev.args ?? {};
-    // New version: { user, payAsset, genIn, amountOut }
-    // Old version: { seller, genIn, paidWei }  (paidWei = ETH out)
+
+    // New: user, payAsset, genIn, amountOut
+    // Old: seller, genIn, paidWei (ETH out)
     const user = args.user ?? args.seller;
     const asset = args.payAsset ?? ETH_ASSET;
     const genIn = args.genIn ?? 0n;
@@ -185,113 +256,82 @@ async function main() {
 
     const assetLower = asLowerAddr(asset) || ETH_ASSET.toLowerCase();
     const userLower = asLowerAddr(user);
+    if (!userLower) continue;
 
-    const a = getAssetStats(assetLower);
-    a.sells += 1;
-    a.genIn += genIn;
-    a.amountOut += amountOut;
-    if (userLower) a.usersSell.add(userLower);
+    const s = getAssetStats(assetLower);
+    s.sells += 1;
+    s.amountOut += amountOut;
+    s.genIn += genIn;
+    s.usersSell.add(userLower);
 
-    if (userLower) {
-      const u = getNested(perUser, userLower, assetLower, initUserAsset);
-      u.sells += 1;
-      u.genIn += genIn;
-      u.assetOut += amountOut;
-    }
+    const ua = getUserAsset(userLower, assetLower);
+    ua.sells += 1;
+    ua.asset_out += amountOut;
+    ua.gen_in += genIn;
   }
 
-  // ---------------- Phase 6: Spent events ----------------
-  let spendLogs = [];
-  const spendGlobal = {
-    spends: 0,
-    totalGenSpent: 0n,
-    uniqueUsers: new Set(),
-    uniqueOperators: new Set(),
-    uniqueTreasuries: new Set(),
-    byReason: new Map(), // reasonHex -> {count, total}
-  };
-
-  if (SPENDER_ADDRESS) {
-    const spender = new ethers.Contract(SPENDER_ADDRESS, gameSpenderAbi, provider);
-
-    try {
-      spendLogs = await spender.queryFilter(spender.filters.Spent(), 0, latest);
-
-      for (const ev of spendLogs) {
-        const { user, operator, treasury, amount, reason } = ev.args;
-
-        const userLower = asLowerAddr(user);
-        const opLower = asLowerAddr(operator);
-        const treLower = asLowerAddr(treasury);
-        const reasonHex = String(reason); // bytes32 as 0x...
-
-        spendGlobal.spends += 1;
-        spendGlobal.totalGenSpent += amount;
-        if (userLower) spendGlobal.uniqueUsers.add(userLower);
-        if (opLower) spendGlobal.uniqueOperators.add(opLower);
-        if (treLower) spendGlobal.uniqueTreasuries.add(treLower);
-
-        if (!spendGlobal.byReason.has(reasonHex)) {
-          spendGlobal.byReason.set(reasonHex, { count: 0, total: 0n });
-        }
-        const r = spendGlobal.byReason.get(reasonHex);
-        r.count += 1;
-        r.total += amount;
-
-        // attach to a pseudo-asset row "GEN_SPEND"
-        const GEN_SPEND_KEY = "GEN_SPEND";
-        if (userLower) {
-          const u = getNested(perUser, userLower, GEN_SPEND_KEY, initUserAsset);
-          u.spends += 1;
-          u.genSpent += amount;
-        }
-      }
-    } catch (e) {
-      console.error(
-        `Warning: could not read Spent events from SPENDER=${SPENDER_ADDRESS}. ` +
-          `Is it deployed on this Anvil run?`
-      );
-      spendLogs = [];
-    }
-  }
-
-  // ---------------- Phase 7: OperatorMinted events ----------------
-  const opMintGlobal = {
-    count: opMintLogs.length,
-    totalGen: 0n,
-    uniqueRecipients: new Set(),
-    byRef: new Map(), // refHex -> {count, totalGen}
-  };
+  // ---- Operator mint logs (Phase 7) ----
+  // Expect: OperatorMinted(address to, uint256 amount, bytes32 ref)
+  const opMintByRef = new Map(); // refHex -> {count, gen}
+  const opMintUsers = new Set();
 
   for (const ev of opMintLogs) {
     const args = ev.args ?? {};
-    const to = args.to;
-    const amount = args.amount ?? 0n;
-    const ref = args.ref ?? args[2]; // fallback if named args absent
+    const to = args.to ?? args[0];
+    const amount = args.amount ?? args[1] ?? 0n;
+    const ref = args.ref ?? args[2];
 
-    const toLower = asLowerAddr(to);
-    const refHex = ref ? String(ref) : "0x0";
-
-    opMintGlobal.totalGen += amount;
-    if (toLower) opMintGlobal.uniqueRecipients.add(toLower);
-
-    if (!opMintGlobal.byRef.has(refHex)) {
-      opMintGlobal.byRef.set(refHex, { count: 0, totalGen: 0n });
+    const userLower = asLowerAddr(to);
+    if (userLower) {
+      opMintUsers.add(userLower);
+      const u = getUser(userLower);
+      u.opMintCount += 1;
+      u.opMintGen += amount;
     }
-    const rr = opMintGlobal.byRef.get(refHex);
-    rr.count += 1;
-    rr.totalGen += amount;
 
-    // attach to pseudo-asset row "GEN_OPMINT"
-    const GEN_OPMINT_KEY = "GEN_OPMINT";
-    if (toLower) {
-      const u = getNested(perUser, toLower, GEN_OPMINT_KEY, initUserAsset);
-      u.opMints += 1;
-      u.genOpMinted += amount;
-    }
+    const refKey = String(ref);
+    if (!opMintByRef.has(refKey)) opMintByRef.set(refKey, { count: 0, gen: 0n });
+    const r = opMintByRef.get(refKey);
+    r.count += 1;
+    r.gen += amount;
   }
 
-  // ---------------- Print report ----------------
+  // ---- Spend logs (Phase 6) ----
+  // Expect in your GameSpender: Spent(operator, user, treasury, amount, reason)
+  const spendByReason = new Map(); // bytes32 -> {count, gen}
+  const spendUsers = new Set();
+  const spendOperators = new Set();
+  const spendTreasuries = new Set();
+
+  for (const ev of spendLogs) {
+    const args = ev.args ?? {};
+    const operator = args.operator ?? args[0];
+    const user = args.user ?? args[1];
+    const treasury = args.treasury ?? args[2];
+    const amount = args.amount ?? args[3] ?? 0n;
+    const reason = args.reason ?? args[4];
+
+    const userLower = asLowerAddr(user);
+    const opLower = asLowerAddr(operator);
+    const trLower = asLowerAddr(treasury);
+
+    if (userLower) {
+      spendUsers.add(userLower);
+      const u = getUser(userLower);
+      u.spendCount += 1;
+      u.spendGen += amount;
+    }
+    if (opLower) spendOperators.add(opLower);
+    if (trLower) spendTreasuries.add(trLower);
+
+    const k = String(reason);
+    if (!spendByReason.has(k)) spendByReason.set(k, { count: 0, gen: 0n });
+    const rr = spendByReason.get(k);
+    rr.count += 1;
+    rr.gen += amount;
+  }
+
+  // --------- Print report ---------
   console.log("==== TokenShop Analytics (Multi-Asset) ====");
   console.log("RPC:", RPC_URL);
   console.log("Shop:", SHOP_ADDRESS);
@@ -330,99 +370,207 @@ async function main() {
   }
 
   console.log("---- Operator Mint (Phase 7) ----");
-  if (opMintGlobal.count === 0) {
+  if (opMintLogs.length === 0) {
     console.log("(No OperatorMinted events found on this deployment)");
   } else {
-    console.log("Operator mints:", opMintGlobal.count);
-    console.log("Total GEN minted (operator):", fmtGen(opMintGlobal.totalGen));
-    console.log("Unique recipients:", opMintGlobal.uniqueRecipients.size);
-
-    if (opMintGlobal.byRef.size > 0) {
-      console.log("");
-      console.log("By ref (bytes32):");
-      const refs = Array.from(opMintGlobal.byRef.entries()).sort((a, b) => {
-        if (a[1].totalGen === b[1].totalGen) return b[1].count - a[1].count;
-        return b[1].totalGen > a[1].totalGen ? 1 : -1;
-      });
-      for (const [refHex, v] of refs.slice(0, 10)) {
-        console.log(`  ${refHex}  count=${v.count}  totalGen=${fmtGen(v.totalGen)}`);
-      }
+    const totalGen = [...opMintByRef.values()].reduce((a, x) => a + x.gen, 0n);
+    console.log("Mints:", opMintLogs.length);
+    console.log("Total GEN minted:", fmtGen(totalGen));
+    console.log("Unique users:", opMintUsers.size);
+    console.log("");
+    console.log("By ref (bytes32):");
+    for (const [ref, x] of opMintByRef.entries()) {
+      console.log(`  ${ref}  count=${x.count}  totalGen=${fmtGen(x.gen)}`);
     }
   }
   console.log("");
 
   console.log("---- Game Spending (Phase 6) ----");
-  if (SPENDER_ADDRESS) {
+  if (!SPENDER_ADDRESS) {
+    console.log("(No SPENDER env var provided)");
+  } else if (!spender) {
+    console.log("(SPENDER provided, but GameSpender ABI not found in ../out)");
+  } else {
     console.log("Spender:", SPENDER_ADDRESS);
-    console.log("Spends:", spendGlobal.spends);
-    console.log("Total GEN spent:", fmtGen(spendGlobal.totalGenSpent));
-    console.log("Unique users:", spendGlobal.uniqueUsers.size);
-    console.log("Unique operators:", spendGlobal.uniqueOperators.size);
-    console.log("Unique treasuries:", spendGlobal.uniqueTreasuries.size);
-
-    if (spendGlobal.byReason.size > 0) {
+    if (spendLogs.length === 0) {
+      console.log("(No Spent events found on this deployment)");
+    } else {
+      const totalSpent = [...spendByReason.values()].reduce((a, x) => a + x.gen, 0n);
+      console.log("Spends:", spendLogs.length);
+      console.log("Total GEN spent:", fmtGen(totalSpent));
+      console.log("Unique users:", spendUsers.size);
+      console.log("Unique operators:", spendOperators.size);
+      console.log("Unique treasuries:", spendTreasuries.size);
       console.log("");
       console.log("By reason (bytes32):");
-      const reasons = Array.from(spendGlobal.byReason.entries()).sort((a, b) => {
-        if (a[1].total === b[1].total) return b[1].count - a[1].count;
-        return b[1].total > a[1].total ? 1 : -1;
-      });
-      for (const [reasonHex, v] of reasons.slice(0, 10)) {
-        console.log(`  ${reasonHex}  count=${v.count}  totalGen=${fmtGen(v.total)}`);
+      for (const [reason, x] of spendByReason.entries()) {
+        console.log(`  ${reason}  count=${x.count}  totalGen=${fmtGen(x.gen)}`);
       }
     }
-    console.log("");
-  } else {
-    console.log("(No SPENDER provided. Run with: SPENDER=0x... SHOP=0x... node index.js)");
-    console.log("");
   }
+  console.log("");
 
   console.log("---- Per-User Summary (net positions) ----");
-  for (const [userLower, assetsMap] of perUser.entries()) {
+  for (const [userLower, u] of perUser.entries()) {
     console.log(`User: ${userLower}`);
-    for (const [assetLower, u] of assetsMap.entries()) {
-      if (assetLower === "GEN_SPEND") {
-        console.log("  Asset: GEN (spend)");
-        console.log(`    spends=${u.spends}`);
-        console.log(`    gen_spent=${fmtGen(u.genSpent)}`);
-        continue;
-      }
 
-      if (assetLower === "GEN_OPMINT") {
-        console.log("  Asset: GEN (operator mint)");
-        console.log(`    operator_mints=${u.opMints}`);
-        console.log(`    gen_minted=${fmtGen(u.genOpMinted)}`);
-        continue;
-      }
-
+    // Assets (ETH/USDT/etc)
+    for (const [assetLower, a] of u.assets.entries()) {
       const decimals = await getAssetDecimals(assetLower);
-      const assetName = assetLower === ETH_ASSET.toLowerCase() ? "ETH" : assetLower;
+      const name = assetLower === ETH_ASSET.toLowerCase() ? "ETH" : assetLower;
 
-      const netAsset = u.assetOut - u.assetIn;
-      const netGen = u.genOut - u.genIn;
+      const netAsset = a.asset_out - a.asset_in; // positive means user net received asset
+      const netGen = a.gen_out - a.gen_in;       // positive means user net received GEN
 
-      console.log(`  Asset: ${assetName}`);
-      console.log(`    buys=${u.buys}, sells=${u.sells}`);
+      console.log(`  Asset: ${name}`);
+      console.log(`    buys=${a.buys}, sells=${a.sells}`);
       console.log(
-        `    asset_in=${fmtAssetAmount(assetLower, u.assetIn, decimals)} | asset_out=${fmtAssetAmount(assetLower, u.assetOut, decimals)} | net_asset=${fmtAssetAmount(assetLower, netAsset, decimals)}`
+        `    asset_in=${fmtAssetAmount(assetLower, a.asset_in, decimals)} | asset_out=${fmtAssetAmount(assetLower, a.asset_out, decimals)} | net_asset=${fmtAssetAmount(assetLower, netAsset, decimals)}`
       );
       console.log(
-        `    gen_out=${fmtGen(u.genOut)} | gen_in=${fmtGen(u.genIn)} | net_gen=${fmtGen(netGen)}`
+        `    gen_out=${fmtGen(a.gen_out)} | gen_in=${fmtGen(a.gen_in)} | net_gen=${fmtGen(netGen)}`
       );
     }
+
+    // Operator mint
+    if (u.opMintCount > 0) {
+      console.log(`  GEN (operator mint)`);
+      console.log(`    mints=${u.opMintCount}`);
+      console.log(`    gen_minted=${fmtGen(u.opMintGen)}`);
+    }
+
+    // Spend
+    if (u.spendCount > 0) {
+      console.log(`  GEN (spend)`);
+      console.log(`    spends=${u.spendCount}`);
+      console.log(`    gen_spent=${fmtGen(u.spendGen)}`);
+    }
+
     console.log("");
   }
 
-  // ---------------- CSV export ----------------
-  const argv = process.argv.slice(2);
-  const csvIndex = argv.indexOf("--csv");
-  if (csvIndex !== -1) {
-    const outPath = argv[csvIndex + 1];
-    if (!outPath) {
-      console.error("Missing output path. Example: node index.js --csv report.csv");
-      process.exit(1);
-    }
+  // --------- Unified Recent Activity Feed ---------
+  const activity = [];
 
+  // BUY
+  for (const ev of boughtLogs) {
+    const args = ev.args ?? {};
+    const user = args.user ?? args.buyer;
+    const asset = args.payAsset ?? ETH_ASSET;
+    const amountIn = args.amountIn ?? args.paidWei ?? 0n;
+    const genOut = args.genOut ?? 0n;
+
+    activity.push({
+      type: "BUY",
+      block: ev.blockNumber,
+      idx: ev.index ?? ev.logIndex ?? 0,
+      user: asLowerAddr(user),
+      asset: asLowerAddr(asset) || ETH_ASSET.toLowerCase(),
+      amount: amountIn,
+      gen: genOut,
+    });
+  }
+
+  // SELL
+  for (const ev of soldLogs) {
+    const args = ev.args ?? {};
+    const user = args.user ?? args.seller;
+    const asset = args.payAsset ?? ETH_ASSET;
+    const genIn = args.genIn ?? 0n;
+    const amountOut = args.amountOut ?? args.paidWei ?? 0n;
+
+    activity.push({
+      type: "SELL",
+      block: ev.blockNumber,
+      idx: ev.index ?? ev.logIndex ?? 0,
+      user: asLowerAddr(user),
+      asset: asLowerAddr(asset) || ETH_ASSET.toLowerCase(),
+      amount: amountOut,
+      gen: genIn,
+    });
+  }
+
+  // OP_MINT
+  for (const ev of opMintLogs ?? []) {
+    const args = ev.args ?? {};
+    const to = args.to ?? args[0];
+    const amount = args.amount ?? args[1] ?? 0n;
+    const ref = args.ref ?? args[2];
+
+    activity.push({
+      type: "OP_MINT",
+      block: ev.blockNumber,
+      idx: ev.index ?? ev.logIndex ?? 0,
+      user: asLowerAddr(to),
+      asset: "gen",
+      amount: 0n,
+      gen: amount,
+      ref: String(ref),
+    });
+  }
+
+  // SPEND
+  for (const ev of spendLogs ?? []) {
+    const args = ev.args ?? {};
+    const user = args.user ?? args[1];
+    const amount = args.amount ?? args[3] ?? 0n;
+    const reason = args.reason ?? args[4];
+
+    activity.push({
+      type: "SPEND",
+      block: ev.blockNumber,
+      idx: ev.index ?? ev.logIndex ?? 0,
+      user: asLowerAddr(user),
+      asset: "gen",
+      amount: 0n,
+      gen: amount,
+      reason: String(reason),
+    });
+  }
+
+  activity.sort((a, b) => (a.block - b.block) || (a.idx - b.idx));
+  const last = activity.slice(-15);
+
+  console.log("---- Recent Activity (Unified, last 15) ----");
+  for (const e of last) {
+    if (!e.user) continue;
+
+    if (e.type === "BUY") {
+      const d = await getAssetDecimals(e.asset);
+      const name = e.asset === ETH_ASSET.toLowerCase() ? "ETH" : e.asset;
+      console.log(
+        `[${e.block}] BUY   user=${e.user} paid=${name} amountIn=${fmtAssetAmount(
+          e.asset,
+          e.amount,
+          d
+        )} genOut=${fmtGen(e.gen)}`
+      );
+    } else if (e.type === "SELL") {
+      const d = await getAssetDecimals(e.asset);
+      const name = e.asset === ETH_ASSET.toLowerCase() ? "ETH" : e.asset;
+      console.log(
+        `[${e.block}] SELL  user=${e.user} got=${name} amountOut=${fmtAssetAmount(
+          e.asset,
+          e.amount,
+          d
+        )} genIn=${fmtGen(e.gen)}`
+      );
+    } else if (e.type === "OP_MINT") {
+      console.log(
+        `[${e.block}] MINT  user=${e.user} gen=${fmtGen(e.gen)} ref=${e.ref}`
+      );
+    } else if (e.type === "SPEND") {
+      console.log(
+        `[${e.block}] SPEND user=${e.user} gen=${fmtGen(e.gen)} reason=${e.reason}`
+      );
+    }
+  }
+  console.log("");
+
+  // --------- CSV export (optional) ---------
+  const csvPath = parseCsvFlag();
+  if (csvPath) {
+    // CSV with per-user view + totals (simple demo-grade export)
     const rows = [];
     rows.push([
       "user",
@@ -435,72 +583,63 @@ async function main() {
       "gen_out",
       "gen_in",
       "net_gen",
-      "spends",
-      "gen_spent",
       "operator_mints",
       "gen_minted",
+      "spends",
+      "gen_spent",
     ]);
 
-    for (const [userLower, assetsMap] of perUser.entries()) {
-      for (const [assetLower, u] of assetsMap.entries()) {
-        if (assetLower === "GEN_SPEND") {
-          rows.push([
-            userLower,
-            "GEN_SPEND",
-            0, 0,
-            0, 0, 0,
-            0, 0, 0,
-            u.spends,
-            fmtGen(u.genSpent),
-            0,
-            0,
-          ]);
-          continue;
-        }
-
-        if (assetLower === "GEN_OPMINT") {
-          rows.push([
-            userLower,
-            "GEN_OPMINT",
-            0, 0,
-            0, 0, 0,
-            0, 0, 0,
-            0,
-            0,
-            u.opMints,
-            fmtGen(u.genOpMinted),
-          ]);
-          continue;
-        }
-
+    for (const [userLower, u] of perUser.entries()) {
+      // asset rows
+      for (const [assetLower, a] of u.assets.entries()) {
         const decimals = await getAssetDecimals(assetLower);
-        const assetName = assetLower === ETH_ASSET.toLowerCase() ? "ETH" : assetLower;
+        const name = assetLower === ETH_ASSET.toLowerCase() ? "ETH" : assetLower;
 
-        const netAsset = u.assetOut - u.assetIn;
-        const netGen = u.genOut - u.genIn;
+        const netAsset = a.asset_out - a.asset_in;
+        const netGen = a.gen_out - a.gen_in;
 
         rows.push([
           userLower,
-          assetName,
-          u.buys,
-          u.sells,
-          fmtAssetAmount(assetLower, u.assetIn, decimals),
-          fmtAssetAmount(assetLower, u.assetOut, decimals),
+          name,
+          a.buys,
+          a.sells,
+          fmtAssetAmount(assetLower, a.asset_in, decimals),
+          fmtAssetAmount(assetLower, a.asset_out, decimals),
           fmtAssetAmount(assetLower, netAsset, decimals),
-          fmtGen(u.genOut),
-          fmtGen(u.genIn),
+          fmtGen(a.gen_out),
+          fmtGen(a.gen_in),
           fmtGen(netGen),
-          u.spends,
-          fmtGen(u.genSpent),
-          u.opMints,
-          fmtGen(u.genOpMinted),
+          u.opMintCount,
+          fmtGen(u.opMintGen),
+          u.spendCount,
+          fmtGen(u.spendGen),
+        ]);
+      }
+
+      // also include rows for users that only have mint/spend (no asset buys/sells)
+      if (u.assets.size === 0) {
+        rows.push([
+          userLower,
+          "(none)",
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          u.opMintCount,
+          fmtGen(u.opMintGen),
+          u.spendCount,
+          fmtGen(u.spendGen),
         ]);
       }
     }
 
     const csv = rows.map((r) => r.map(csvEscape).join(",")).join("\n");
-    writeFileSync(outPath, csv, "utf8");
-    console.log(`CSV written: ${outPath}`);
+    writeFileSync(csvPath, csv, "utf8");
+    console.log(`CSV written: ${csvPath}`);
   }
 }
 

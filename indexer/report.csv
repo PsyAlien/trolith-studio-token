@@ -1,1 +1,2 @@
-user,asset,buys,sells,asset_in,asset_out,net_asset,gen_out,gen_in,net_gen,spends,gen_spent
+user,asset,buys,sells,asset_in,asset_out,net_asset,gen_out,gen_in,net_gen,operator_mints,gen_minted,spends,gen_spent
+0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266,ETH,1,0,0.01,0,-0.01,10,0,10,0,0,1,1
