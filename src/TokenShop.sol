@@ -2,23 +2,21 @@
 pragma solidity ^0.8.19;
 
 import { Ownable } from "openzeppelin-contracts/contracts/access/Ownable.sol";
-import { StudioToken } from "./StudioToken.sol";
 import { IERC20 } from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import { SafeERC20 } from "openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
+
+import { StudioToken } from "./StudioToken.sol";
 
 contract TokenShop is Ownable {
     using SafeERC20 for IERC20;
 
     StudioToken public immutable token;
 
-    // Hard per-tx limits
+    // Limits (still useful safety rails)
     uint256 public maxEthIn; // max msg.value for buyETH
     uint256 public maxGenIn; // max GEN units for sellToETH / sellToToken
 
     bool public paused;
-
-    // MVP compliance gate
-    mapping(address => bool) public allowed;
 
     // Supported payment assets (ETH = address(0))
     mapping(address => bool) public supportedTokens;
@@ -26,7 +24,7 @@ contract TokenShop is Ownable {
     // Asset decimals (ETH treated as 18)
     mapping(address => uint8) public assetDecimals;
 
-    // Rates are scaled by 1e18:
+    // Rates scaled by 1e18:
     // buyRate[asset]  = GEN units per 1 asset unit (normalized to 18 decimals)
     // sellRate[asset] = GEN units per 1 asset unit (normalized to 18 decimals)
     mapping(address => uint256) public buyRate;
@@ -43,8 +41,12 @@ contract TokenShop is Ownable {
     event RatesUpdated(address indexed asset, uint256 buyRate, uint256 sellRate);
     event FeeUpdated(uint256 feeBps);
     event EthWithdrawn(address indexed to, uint256 amount);
-    event OperatorMinted(address indexed to, uint256 amount, bytes32 indexed ref);
 
+    // Ops / admin change events (helps debugging + indexer + audits)
+    event PausedSet(bool paused);
+    event SupportedTokenSet(address indexed asset, bool isSupported);
+    event AssetDecimalsSet(address indexed asset, uint8 decimals);
+    event LimitsUpdated(uint256 maxEthIn, uint256 maxGenIn);
 
     constructor(
         StudioToken token_,
@@ -71,26 +73,27 @@ contract TokenShop is Ownable {
 
         feeBps = 0;
         emit FeeUpdated(0);
+
+        emit LimitsUpdated(maxEthIn_, maxGenIn_);
     }
 
     // ---------------- Admin controls ----------------
 
     function setPaused(bool paused_) external onlyOwner {
         paused = paused_;
-    }
-
-    function setAllowed(address user, bool isAllowed) external onlyOwner {
-        allowed[user] = isAllowed;
+        emit PausedSet(paused_);
     }
 
     function setSupportedToken(address asset, bool isSupported) external onlyOwner {
         supportedTokens[asset] = isSupported;
+        emit SupportedTokenSet(asset, isSupported);
     }
 
     function setAssetDecimals(address asset, uint8 decimals_) external onlyOwner {
         require(asset != address(0), "eth fixed");
         require(decimals_ <= 18, "dec>18");
         assetDecimals[asset] = decimals_;
+        emit AssetDecimalsSet(asset, decimals_);
     }
 
     function setRates(address asset, uint256 newBuyRate, uint256 newSellRate) external onlyOwner {
@@ -105,10 +108,12 @@ contract TokenShop is Ownable {
 
     function setMaxEthIn(uint256 newMaxEthIn) external onlyOwner {
         maxEthIn = newMaxEthIn;
+        emit LimitsUpdated(maxEthIn, maxGenIn);
     }
 
     function setMaxGenIn(uint256 newMaxGenIn) external onlyOwner {
         maxGenIn = newMaxGenIn;
+        emit LimitsUpdated(maxEthIn, maxGenIn);
     }
 
     function setFeeBps(uint256 newFeeBps) external onlyOwner {
@@ -127,14 +132,6 @@ contract TokenShop is Ownable {
         emit EthWithdrawn(to, amountWei);
     }
 
-    function operatorMint(address to, uint256 amount, bytes32 ref) external onlyOwner {
-        require(to != address(0), "to=0");
-        require(amount > 0, "amount=0");
-        token.mint(to, amount);
-        emit OperatorMinted(to, amount, ref);
-    }
-
-
     // ---------------- Math helpers ----------------
 
     function _applyFee(uint256 amount) internal view returns (uint256) {
@@ -146,8 +143,7 @@ contract TokenShop is Ownable {
         uint8 d = assetDecimals[asset];
         require(d != 0, "decimals not set");
         if (d == 18) return amount;
-        // d < 18 (we enforce <= 18)
-        return amount * (10 ** (18 - d));
+        return amount * (10 ** (18 - d)); // d < 18
     }
 
     function _from18(address asset, uint256 amount18) internal view returns (uint256) {
@@ -182,11 +178,14 @@ contract TokenShop is Ownable {
         amountOut = _from18(asset, grossOut18);
     }
 
-    // ---------------- ETH flows (Option A) ----------------
+    // ============================================================
+    // 4 USER FUNCTIONS (Masha scope)
+    // ============================================================
+
+    // ---------------- BUY FLOWS (mint to user) ----------------
 
     function buyETH(uint256 minGenOut) external payable {
         require(!paused, "paused");
-        require(allowed[msg.sender], "not allowed");
         require(supportedTokens[address(0)], "eth not supported");
 
         require(msg.value > 0, "no payment");
@@ -199,12 +198,32 @@ contract TokenShop is Ownable {
         require(netGenOut >= minGenOut, "slippage");
 
         token.mint(msg.sender, netGenOut);
+
         emit Bought(msg.sender, address(0), msg.value, netGenOut);
     }
 
+    function buyToken(address asset, uint256 amountIn, uint256 minGenOut) external {
+        require(asset != address(0), "use buyETH");
+        require(!paused, "paused");
+        require(supportedTokens[asset], "asset not supported");
+        require(amountIn > 0, "amountIn=0");
+
+        uint256 grossGenOut = getQuoteBuyToken(asset, amountIn);
+        require(grossGenOut > 0, "too little");
+
+        uint256 netGenOut = _applyFee(grossGenOut);
+        require(netGenOut >= minGenOut, "slippage");
+
+        IERC20(asset).safeTransferFrom(msg.sender, address(this), amountIn);
+        token.mint(msg.sender, netGenOut);
+
+        emit Bought(msg.sender, asset, amountIn, netGenOut);
+    }
+
+    // ---------------- SELL FLOWS (burn in shop BEFORE payout) ----------------
+
     function sellToETH(uint256 genIn, uint256 minEthOut) external {
         require(!paused, "paused");
-        require(allowed[msg.sender], "not allowed");
         require(supportedTokens[address(0)], "eth not supported");
 
         require(genIn > 0, "zero genIn");
@@ -220,50 +239,25 @@ contract TokenShop is Ownable {
         bool ok = token.transferFrom(msg.sender, address(this), genIn);
         require(ok, "transferFrom failed");
 
+        token.burn(genIn);
+
         (bool success, ) = payable(msg.sender).call{value: netEthOut}("");
         require(success, "eth transfer failed");
 
         emit Sold(msg.sender, address(0), genIn, netEthOut);
     }
 
-    // ---------------- ERC20 flows (Phase 4) ----------------
-
-    function buyToken(address asset, uint256 amountIn, uint256 minGenOut) external {
-        require(asset != address(0), "use buyETH");
-        require(!paused, "paused");
-        require(allowed[msg.sender], "not allowed");
-        require(supportedTokens[asset], "asset not supported");
-        require(amountIn > 0, "amountIn=0");
-
-        uint256 grossGenOut = getQuoteBuyToken(asset, amountIn);
-        require(grossGenOut > 0, "too little");
-
-        uint256 netGenOut = _applyFee(grossGenOut);
-        require(netGenOut >= minGenOut, "slippage");
-
-        // Pull ERC20 into shop
-        IERC20(asset).safeTransferFrom(msg.sender, address(this), amountIn);
-
-        // Mint GEN out
-        token.mint(msg.sender, netGenOut);
-
-        emit Bought(msg.sender, asset, amountIn, netGenOut);
-    }
-
     function sellToToken(address asset, uint256 genIn, uint256 minTokenOut) external {
         require(asset != address(0), "use sellToETH");
         require(!paused, "paused");
-        require(allowed[msg.sender], "not allowed");
         require(supportedTokens[asset], "asset not supported");
 
         require(genIn > 0, "zero genIn");
         require(genIn <= maxGenIn, "over maxGenIn");
 
-        // gross token out in native decimals
         uint256 grossTokenOut = getQuoteSellToToken(asset, genIn);
         require(grossTokenOut > 0, "too little");
 
-        // fee applied on output; for ERC20 we apply fee in 18-dec space to avoid rounding surprises
         uint256 grossOut18 = _to18(asset, grossTokenOut);
         uint256 netOut18 = _applyFee(grossOut18);
         uint256 netTokenOut = _from18(asset, netOut18);
@@ -273,6 +267,8 @@ contract TokenShop is Ownable {
 
         bool ok = token.transferFrom(msg.sender, address(this), genIn);
         require(ok, "transferFrom failed");
+
+        token.burn(genIn);
 
         IERC20(asset).safeTransfer(msg.sender, netTokenOut);
 
