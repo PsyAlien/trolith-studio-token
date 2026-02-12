@@ -1,4 +1,4 @@
-# Trolith Studio Token MVP — Demo Script
+# Triolith Studio Token MVP — Demo Script
 
 This demo shows:
 
