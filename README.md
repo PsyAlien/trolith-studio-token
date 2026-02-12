@@ -1,60 +1,75 @@
-Trolith Studio Token — MVP Vertical Slice
-A controlled studio token economy with observability, guardrails, and configurable pricing
+# Triolith Studio Token — MVP Vertical Slice
 
+**A controlled studio token economy with observability, guardrails, and configurable pricing**
 
-This is not a production system.
-It is a vertical slice MVP designed to prove architecture, flows, and traceability.
+---
 
+> **This is not a production system.**
+> It is a vertical slice MVP designed to prove architecture, flows, and traceability.
 
-🎯 Project Goal
+---
+
+## 🎯 Project Goal
+
 Build a small but real system that shows:
 
-How players buy and sell a studio token safely
-How tokens are minted and burned through a controlled shop with role-based access
-How multi-asset support (ETH + ERC-20) works with decimal normalization
-How analytics and reporting make the economy observable
+- How players buy and sell a studio token safely
+- How tokens are minted and burned through a controlled shop with role-based access
+- How multi-asset support (ETH + ERC-20) works with decimal normalization
+- How analytics and reporting make the economy observable
 
-No speculation. No DeFi complexity. No frontend needed.
+**No speculation. No DeFi complexity. No frontend needed.**
 
-🧱 System Overview
-On-Chain (Solidity / Foundry)
-StudioToken (ERC-20 + AccessControl)
+---
+
+## 🧱 System Overview
+
+### On-Chain (Solidity / Foundry)
+
+#### StudioToken (ERC-20 + AccessControl)
+
 The studio-wide token (TST).
 
-Built on OpenZeppelin's ERC20 + AccessControl
-Role-based permissions: MINTER_ROLE and BURNER_ROLE
-Only addresses with MINTER_ROLE can mint new tokens
-Only addresses with BURNER_ROLE can burn tokens from their own balance
-Admin (DEFAULT_ADMIN_ROLE) manages role assignments
+- Built on OpenZeppelin's `ERC20` + `AccessControl`
+- Role-based permissions: `MINTER_ROLE` and `BURNER_ROLE`
+- Only addresses with `MINTER_ROLE` can mint new tokens
+- Only addresses with `BURNER_ROLE` can burn tokens from their own balance
+- Admin (`DEFAULT_ADMIN_ROLE`) manages role assignments
 
-TokenShop
+#### TokenShop
+
 Controlled buy/sell module.
 
-ETH + ERC-20 support (USDT-style)
-Admin-configurable buy/sell rates (no hardcoded prices)
-Decimal normalization (handles 6-decimal tokens like USDT)
-Slippage protection on all trade functions
-Per-transaction limits (maxEthIn, maxGenIn)
-Configurable fee (basis points, capped at 10%)
-Pause/unpause functionality
-Supported asset allowlist
-Treasury ETH withdrawal
-Unified events for analytics (Bought, Sold)
-Quote helpers for off-chain price display
+- ETH + ERC-20 support (USDT-style)
+- Admin-configurable buy/sell rates (no hardcoded prices)
+- Decimal normalization (handles 6-decimal tokens like USDT)
+- Slippage protection on all trade functions
+- Per-transaction limits (`maxEthIn`, `maxGenIn`)
+- Configurable fee (basis points, capped at 10%)
+- Pause/unpause functionality
+- Supported asset allowlist
+- Treasury ETH withdrawal
+- Unified events for analytics (`Bought`, `Sold`)
+- Quote helpers for off-chain price display
 
-Off-Chain (Node.js)
-Indexer
-Reads on-chain Bought and Sold events from the TokenShop and produces:
+### Off-Chain (Node.js)
 
-Per-asset summary (buys, sells, volumes)
-Per-user net positions
-Fee and treasury overview
-ETH pricing and quote snapshots
-Unified recent activity feed (last 15 events)
-Optional CSV export for reporting
+#### Indexer
 
+Reads on-chain `Bought` and `Sold` events from the TokenShop and produces:
 
-📁 Repository Structure
+- Per-asset summary (buys, sells, volumes)
+- Per-user net positions
+- Fee and treasury overview
+- ETH pricing and quote snapshots
+- Unified recent activity feed (last 15 events)
+- Optional CSV export for reporting
+
+---
+
+## 📁 Repository Structure
+
+```
 trolith-studio-token/
 ├── src/
 │   ├── StudioToken.sol       # ERC-20 token with AccessControl roles
@@ -75,65 +90,79 @@ trolith-studio-token/
 ├── DEMO.md                   # Step-by-step demo walkthrough
 ├── foundry.toml              # Foundry configuration
 └── README.md
+```
 
-✅ What Is Implemented
-Safety & Guardrails
+---
 
-Pause / unpause
-Supported asset allowlist
-Slippage protection on all user-facing functions
-Per-transaction limits (maxEthIn, maxGenIn)
-Role-based access control (MINTER / BURNER roles on StudioToken)
+## ✅ What Is Implemented
 
-Configurable Pricing
+### Safety & Guardrails
 
-No hardcoded prices
-Admin-set buy/sell rates per asset
-Quote helpers (getQuoteBuyETH, getQuoteSellToETH, getQuoteBuyToken, getQuoteSellToToken)
+- Pause / unpause
+- Supported asset allowlist
+- Slippage protection on all user-facing functions
+- Per-transaction limits (`maxEthIn`, `maxGenIn`)
+- Role-based access control (MINTER / BURNER roles on StudioToken)
 
-Fees & Treasury Ops
+### Configurable Pricing
 
-Configurable fee in basis points (capped at 10%)
-Fees applied on trade execution
-Admin ETH withdrawal from shop
+- No hardcoded prices
+- Admin-set buy/sell rates per asset
+- Quote helpers (`getQuoteBuyETH`, `getQuoteSellToETH`, `getQuoteBuyToken`, `getQuoteSellToToken`)
 
-Multi-Asset Support
+### Fees & Treasury Ops
 
-ETH + ERC-20 (e.g. USDT with 6 decimals)
-Automatic decimal normalization (_to18 / _from18)
-Unified Bought / Sold events across all assets
+- Configurable fee in basis points (capped at 10%)
+- Fees applied on trade execution
+- Admin ETH withdrawal from shop
 
-Analytics & Reporting
+### Multi-Asset Support
 
-Per-asset buy/sell volume summary
-Per-user net position tracking
-Unified recent activity feed
-CSV export (node index.js --csv report.csv)
+- ETH + ERC-20 (e.g. USDT with 6 decimals)
+- Automatic decimal normalization (`_to18` / `_from18`)
+- Unified `Bought` / `Sold` events across all assets
 
+### Analytics & Reporting
 
-🚫 Explicitly Out of Scope (By Design)
+- Per-asset buy/sell volume summary
+- Per-user net position tracking
+- Unified recent activity feed
+- CSV export (`node index.js --csv report.csv`)
 
-Frontend UI
-Game spending contracts
-BTC bridge or off-chain asset workflows
-Real KYC / AML
-Fiat payments
-AMMs, curves, or DeFi mechanics
-Upgradeable proxies
+---
 
-This MVP focuses on architecture and correctness, not polish.
+## 🚫 Explicitly Out of Scope (By Design)
 
-▶️ How to Run
-Prerequisites
+- Frontend UI
+- Game spending contracts
+- BTC bridge or off-chain asset workflows
+- Real KYC / AML
+- Fiat payments
+- AMMs, curves, or DeFi mechanics
+- Upgradeable proxies
 
-Foundry installed
-Node.js (for the indexer)
+**This MVP focuses on architecture and correctness, not polish.**
 
-Build & Test
-bashforge build
+---
+
+## ▶️ How to Run
+
+### Prerequisites
+
+- [Foundry](https://book.getfoundry.sh/getting-started/installation) installed
+- Node.js (for the indexer)
+
+### Build & Test
+
+```bash
+forge build
 forge test -vvv
-Deploy (Local Anvil)
-bash# Start a local chain
+```
+
+### Deploy (Local Anvil)
+
+```bash
+# Start a local chain
 anvil
 
 # Deploy (in another terminal)
@@ -141,24 +170,35 @@ PK=<anvil-private-key> forge script script/DeployShop.s.sol --rpc-url http://127
 
 # Optional: deploy mock USDT
 forge script script/DeployMockUSDT.s.sol --rpc-url http://127.0.0.1:8545 --broadcast
-Run the Indexer
-bashcd indexer
+```
+
+### Run the Indexer
+
+```bash
+cd indexer
 npm install
 SHOP=0x<shop-address> node index.js
 
 # With CSV export
 SHOP=0x<shop-address> node index.js --csv report.csv
-See DEMO.md for a full step-by-step walkthrough.
+```
 
-🧠 Design Philosophy
+See **[DEMO.md](DEMO.md)** for a full step-by-step walkthrough.
 
-Prefer clarity over cleverness
-Make economic flows observable
-Keep humans in control
-Build boring, auditable primitives
+---
 
-This repo is meant to be read, understood, and extended.
+## 🧠 Design Philosophy
 
-👤 Author / Context
+> Prefer clarity over cleverness
+> Make economic flows observable
+> Keep humans in control
+> Build boring, auditable primitives
+
+**This repo is meant to be read, understood, and extended.**
+
+---
+
+## 👤 Author / Context
+
 Built as a learning-driven internship MVP for Trolith,
 focused on understanding how a studio-level token economy can be built safely and transparently.
