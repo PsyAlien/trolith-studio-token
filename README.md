@@ -1,4 +1,4 @@
-# Trolith Studio Token — MVP Vertical Slice
+# Triolith Studio Token — MVP Vertical Slice
 
 **A controlled studio token economy with observability, guardrails, and configurable pricing**
 
