@@ -7,6 +7,7 @@ This demo shows:
 - **Start the backend API** and query it
 - **Test admin endpoints** with Postman
 - **Run the CLI indexer** for analytics
+- **Run the frontend** and trade via the browser
 
 ---
 
@@ -41,7 +42,21 @@ Write down the printed addresses:
 
 ---
 
-### 2) Start the backend API
+### 2) Run the tests
+
+```bash
+# Run all tests (StudioToken + TokenShop + Comprehensive)
+forge test -vvv
+
+# Or run just the 44 comprehensive tests
+forge test -vvv --match-contract TokenShopComprehensive
+```
+
+Expected: all 44 comprehensive tests pass (fees, pause, limits, ERC-20, edge cases, slippage, admin access, withdrawal, multi-asset, events, quotes, rate config).
+
+---
+
+### 3) Start the backend API
 
 In a new terminal:
 
@@ -76,7 +91,7 @@ http://localhost:3000/api/health
 
 ---
 
-### 3) Buy GEN using ETH
+### 4) Buy GEN using ETH
 
 ```bash
 RPC=http://127.0.0.1:8545
@@ -102,7 +117,7 @@ http://localhost:3000/api/user/0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266/balanc
 
 ---
 
-### 4) Deploy MockUSDT and buy GEN with it
+### 5) Deploy MockUSDT and buy GEN with it
 
 ```bash
 # Deploy MockUSDT
@@ -137,7 +152,7 @@ http://localhost:3000/api/shop/liquidity
 
 ---
 
-### 5) Sell GEN back to USDT
+### 6) Sell GEN back to USDT
 
 ```bash
 GEN=$(cast call $SHOP "token()(address)" --rpc-url $RPC)
@@ -164,7 +179,7 @@ http://localhost:3000/api/shop/liquidity
 
 ---
 
-### 6) Test admin endpoints (Postman)
+### 7) Test admin endpoints (Postman)
 
 Open Postman and create requests:
 
@@ -200,7 +215,50 @@ Open Postman and create requests:
 
 ---
 
-### 7) CLI Indexer (optional)
+### 8) Frontend walkthrough
+
+In a new terminal:
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+Opens at: `http://localhost:5173`
+
+**MetaMask setup (one-time):**
+
+1. Add network:
+   - Network Name: `Anvil Local`
+   - RPC URL: `http://127.0.0.1:8545`
+   - Chain ID: `31337`
+   - Currency Symbol: `ETH`
+
+2. Import account:
+   - Click MetaMask → Import Account → Private Key
+   - Paste: `0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80`
+   - This is the Anvil default deployer (admin wallet)
+
+**Page-by-page tour:**
+
+1. **Dashboard** — see 4 stat cards (GEN supply, total buys/sells, unique users), shop liquidity, config panel, activity feed. Click "Sync Now" to pull latest on-chain events.
+
+2. **Trade** — connect wallet → toggle Buy/Sell → enter amount → see live quote → click "Buy GEN" → approve MetaMask popup → wait for tx confirmation. Try buying 10 GEN with 0.01 ETH.
+
+3. **Portfolio** — after trading, see your GEN balance, net positions per asset, and full transaction history. Click "Refresh" to sync + reload.
+
+4. **Admin** — only accessible with the admin wallet (Anvil deployer). See current config, then try:
+   - Pause/unpause the shop
+   - Set fee to 1% (100 bps)
+   - Set new ETH buy/sell rates
+   - Set max ETH or GEN limits
+
+> If any API call fails, an error banner appears at the top of the page with a "Retry" button.
+
+---
+
+### 9) CLI Indexer (optional)
 
 ```bash
 cd indexer
