@@ -1,9 +1,8 @@
 import { Router } from "express";
-import { PrismaClient } from "@prisma/client";
+import prisma from "../db.js";
 import { getShopConfig, getShopLiquidity, getGenTotalSupply } from "../services/shop.js";
 
 const router = Router();
-const prisma = new PrismaClient();
 
 /**
  * GET /api/shop/config

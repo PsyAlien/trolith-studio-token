@@ -3,8 +3,12 @@ import { ethers } from "ethers";
 
 const WalletContext = createContext(null);
 
-// Anvil default deployer (admin)
-const ADMIN_ADDRESS = "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266";
+// Admin address: configurable via VITE_ADMIN_ADDRESS env var
+// Defaults to Anvil deployer for local development
+const ADMIN_ADDRESS = (
+  import.meta.env.VITE_ADMIN_ADDRESS ||
+  "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266"
+).toLowerCase();
 
 export function WalletProvider({ children }) {
   const [address, setAddress] = useState(null);

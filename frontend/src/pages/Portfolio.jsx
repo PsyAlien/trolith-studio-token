@@ -1,6 +1,7 @@
 import { useWallet } from "../context/WalletContext";
 import { useApiData, triggerSync } from "../hooks/useApi";
 import StatCard from "../components/StatCard";
+import ErrorBanner from "../components/ErrorBanner";
 import { Coins, ArrowDownLeft, ArrowUpRight, RefreshCw, Wallet } from "lucide-react";
 import { ethers } from "ethers";
 import { useState } from "react";
@@ -27,12 +28,14 @@ export default function Portfolio() {
   const { isConnected, address } = useWallet();
   const [syncing, setSyncing] = useState(false);
 
-  const { data: balance, loading: balLoading, refresh: refreshBal } = useApiData(
+  const { data: balance, loading: balLoading, error: balError, refresh: refreshBal } = useApiData(
     isConnected ? `/user/${address}/balance` : null
   );
-  const { data: history, loading: histLoading, refresh: refreshHist } = useApiData(
+  const { data: history, loading: histLoading, error: histError, refresh: refreshHist } = useApiData(
     isConnected ? `/user/${address}/history` : null
   );
+
+  const apiError = balError || histError;
 
   async function handleRefresh() {
     setSyncing(true);
@@ -82,6 +85,9 @@ export default function Portfolio() {
           Refresh
         </button>
       </div>
+
+      {/* Error Banner */}
+      <ErrorBanner message={apiError} onRetry={handleRefresh} />
 
       {/* Balance Card */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 
 const API_BASE = "/api";
 
@@ -19,28 +19,48 @@ async function apiFetch(path, options = {}) {
 
 /**
  * Hook: fetch data on mount + expose refresh.
+ * Pass null as path to skip fetching (e.g. when wallet not connected).
  */
-export function useApiData(path, deps = []) {
+export function useApiData(path) {
   const [data, setData] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!!path);
   const [error, setError] = useState(null);
 
+  // Use ref to avoid stale closures
+  const pathRef = useRef(path);
+  pathRef.current = path;
+
   const refresh = useCallback(async () => {
+    const currentPath = pathRef.current;
+    if (!currentPath) {
+      setData(null);
+      setLoading(false);
+      setError(null);
+      return;
+    }
+
     setLoading(true);
     setError(null);
     try {
-      const result = await apiFetch(path);
+      const result = await apiFetch(currentPath);
       setData(result);
     } catch (err) {
       setError(err.message);
     } finally {
       setLoading(false);
     }
-  }, [path, ...deps]);
+  }, []);
 
+  // Re-fetch when path changes
   useEffect(() => {
+    if (!path) {
+      setData(null);
+      setLoading(false);
+      setError(null);
+      return;
+    }
     refresh();
-  }, [refresh]);
+  }, [path, refresh]);
 
   return { data, loading, error, refresh };
 }

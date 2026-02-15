@@ -1,6 +1,7 @@
 import { useApiData, triggerSync } from "../hooks/useApi";
 import StatCard from "../components/StatCard";
 import ActivityFeed from "../components/ActivityFeed";
+import ErrorBanner from "../components/ErrorBanner";
 import {
   Coins,
   TrendingUp,
@@ -12,12 +13,15 @@ import {
 import { useState } from "react";
 
 export default function Dashboard() {
-  const { data: summary, loading: summaryLoading, refresh: refreshSummary } = useApiData("/analytics/summary");
-  const { data: activity, loading: activityLoading, refresh: refreshActivity } = useApiData("/analytics/activity?limit=10");
-  const { data: liquidity, loading: liqLoading, refresh: refreshLiq } = useApiData("/shop/liquidity");
-  const { data: config, loading: configLoading } = useApiData("/shop/config");
+  const { data: summary, loading: summaryLoading, error: summaryError, refresh: refreshSummary } = useApiData("/analytics/summary");
+  const { data: activity, loading: activityLoading, error: activityError, refresh: refreshActivity } = useApiData("/analytics/activity?limit=10");
+  const { data: liquidity, loading: liqLoading, error: liqError, refresh: refreshLiq } = useApiData("/shop/liquidity");
+  const { data: config, loading: configLoading, error: configError } = useApiData("/shop/config");
 
   const [syncing, setSyncing] = useState(false);
+
+  // Combine errors
+  const apiError = summaryError || activityError || liqError || configError;
 
   async function handleSync() {
     setSyncing(true);
@@ -29,6 +33,12 @@ export default function Dashboard() {
     } finally {
       setSyncing(false);
     }
+  }
+
+  function handleRetry() {
+    refreshSummary();
+    refreshActivity();
+    refreshLiq();
   }
 
   return (
@@ -50,6 +60,9 @@ export default function Dashboard() {
           {syncing ? "Syncing..." : "Sync Now"}
         </button>
       </div>
+
+      {/* Error Banner */}
+      <ErrorBanner message={apiError} onRetry={handleRetry} />
 
       {/* Stats Grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
@@ -92,6 +105,8 @@ export default function Dashboard() {
           </p>
           {liqLoading ? (
             <div className="h-16 bg-dark-700 rounded animate-pulse" />
+          ) : liqError ? (
+            <p className="text-neon-pink text-xs">Failed to load liquidity</p>
           ) : (
             <div className="space-y-2">
               {liquidity &&
@@ -112,6 +127,8 @@ export default function Dashboard() {
           <p className="label mb-3">Shop Config</p>
           {configLoading ? (
             <div className="h-16 bg-dark-700 rounded animate-pulse" />
+          ) : configError ? (
+            <p className="text-neon-pink text-xs">Failed to load config</p>
           ) : config ? (
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
               <div className="bg-dark-700/50 rounded-lg p-3">

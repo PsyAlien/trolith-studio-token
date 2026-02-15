@@ -1,9 +1,7 @@
-
 import { ethers } from "ethers";
-import { PrismaClient } from "@prisma/client";
+import prisma from "../db.js";
 import { shop, provider, getAssetSymbol } from "../config.js";
 
-const prisma = new PrismaClient();
 const ETH = ethers.ZeroAddress.toLowerCase();
 
 function lower(addr) {
@@ -17,7 +15,7 @@ function lower(addr) {
 /**
  * Sync on-chain Bought / Sold events into the database.
  * Only fetches blocks after the last synced block.
- * Returns the number of new events indexed.
+ * Returns the number of *new* events indexed.
  */
 export async function syncEvents() {
   const latest = await provider.getBlockNumber();
@@ -61,28 +59,30 @@ export async function syncEvents() {
     if (!user) continue;
 
     const symbol = await getAssetSymbol(asset);
+    const txHash = ev.transactionHash;
+    const logIndex = ev.index ?? ev.logIndex ?? 0;
 
-    await prisma.event.upsert({
-      where: {
-        txHash_logIndex: {
-          txHash: ev.transactionHash,
-          logIndex: ev.index ?? ev.logIndex ?? 0,
-        },
-      },
-      update: {},
-      create: {
-        type: "BUY",
-        blockNumber: ev.blockNumber,
-        txHash: ev.transactionHash,
-        logIndex: ev.index ?? ev.logIndex ?? 0,
-        user,
-        asset,
-        assetSymbol: symbol,
-        amountIn,
-        amountOut: genOut,
-      },
+    // Check if already exists before inserting
+    const existing = await prisma.event.findUnique({
+      where: { txHash_logIndex: { txHash, logIndex } },
     });
-    count++;
+
+    if (!existing) {
+      await prisma.event.create({
+        data: {
+          type: "BUY",
+          blockNumber: ev.blockNumber,
+          txHash,
+          logIndex,
+          user,
+          asset,
+          assetSymbol: symbol,
+          amountIn,
+          amountOut: genOut,
+        },
+      });
+      count++;
+    }
   }
 
   // Process Sold events
@@ -96,28 +96,29 @@ export async function syncEvents() {
     if (!user) continue;
 
     const symbol = await getAssetSymbol(asset);
+    const txHash = ev.transactionHash;
+    const logIndex = ev.index ?? ev.logIndex ?? 0;
 
-    await prisma.event.upsert({
-      where: {
-        txHash_logIndex: {
-          txHash: ev.transactionHash,
-          logIndex: ev.index ?? ev.logIndex ?? 0,
-        },
-      },
-      update: {},
-      create: {
-        type: "SELL",
-        blockNumber: ev.blockNumber,
-        txHash: ev.transactionHash,
-        logIndex: ev.index ?? ev.logIndex ?? 0,
-        user,
-        asset,
-        assetSymbol: symbol,
-        amountIn: genIn,
-        amountOut,
-      },
+    const existing = await prisma.event.findUnique({
+      where: { txHash_logIndex: { txHash, logIndex } },
     });
-    count++;
+
+    if (!existing) {
+      await prisma.event.create({
+        data: {
+          type: "SELL",
+          blockNumber: ev.blockNumber,
+          txHash,
+          logIndex,
+          user,
+          asset,
+          assetSymbol: symbol,
+          amountIn: genIn,
+          amountOut,
+        },
+      });
+      count++;
+    }
   }
 
   // Update sync state

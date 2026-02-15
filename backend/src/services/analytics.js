@@ -1,6 +1,4 @@
-import { PrismaClient } from "@prisma/client";
-
-const prisma = new PrismaClient();
+import prisma from "../db.js";
 
 /**
  * High-level summary: total buys/sells, GEN minted/burned, unique users.
