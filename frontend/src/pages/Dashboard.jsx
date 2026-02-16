@@ -10,7 +10,7 @@ import {
   Droplets,
   RefreshCw,
 } from "lucide-react";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 
 export default function Dashboard() {
   const { data: summary, loading: summaryLoading, error: summaryError, refresh: refreshSummary } = useApiData("/analytics/summary");
@@ -19,6 +19,16 @@ export default function Dashboard() {
   const { data: config, loading: configLoading, error: configError } = useApiData("/shop/config");
 
   const [syncing, setSyncing] = useState(false);
+
+  // Auto-refresh every 15 seconds so new trades show up
+  useEffect(() => {
+    const interval = setInterval(() => {
+      refreshSummary();
+      refreshActivity();
+      refreshLiq();
+    }, 15000);
+    return () => clearInterval(interval);
+  }, [refreshSummary, refreshActivity, refreshLiq]);
 
   // Combine errors
   const apiError = summaryError || activityError || liqError || configError;

@@ -23,22 +23,43 @@ anvil
 
 ---
 
-### 1) Deploy contracts (Token + Shop)
+### 1) Deploy contracts
 
 In a new terminal, from the project root:
 
 ```bash
 RPC=http://127.0.0.1:8545
 PK=0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80
+```
 
-forge script script/DeployShop.s.sol:DeployShop \
+**Step 1a: Deploy MockUSDT first** (because DeployShop needs its address):
+
+```bash
+forge script script/DeployMockUSDT.s.sol:DeployMockUSDT \
   --rpc-url $RPC --private-key $PK --broadcast
 ```
 
-Write down the printed addresses:
+Write down the printed address, e.g. `MockUSDT: 0x5FbDB2...`
 
+**Step 1b: Deploy Token + Shop** (pass the USDT address so it's auto-configured):
+
+```bash
+USDT=0xYOUR_MOCK_USDT PK=$PK forge script script/DeployShop.s.sol:DeployShop \
+  --rpc-url $RPC --private-key $PK --broadcast
+```
+
+You should see:
+```
+Deployer (admin): 0xf39F...2266
+StudioToken:      0x...
+TokenShop:        0x...
+USDT configured:  0x...  ← same address as MockUSDT above
+```
+
+Write down:
 - `SHOP=0x...` (TokenShop)
 - `GEN=0x...` (StudioToken)
+- `USDT=0x...` (MockUSDT — already configured in shop)
 
 ---
 
@@ -117,26 +138,22 @@ http://localhost:3000/api/user/0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266/balanc
 
 ---
 
-### 5) Deploy MockUSDT and buy GEN with it
+### 5) Buy GEN with USDT
+
+USDT was already deployed (step 1a) and configured in the shop (step 1b).
+You just need to mint some test USDT and trade with it:
 
 ```bash
-# Deploy MockUSDT
-forge script script/DeployMockUSDT.s.sol:DeployMockUSDT \
-  --rpc-url $RPC --private-key $PK --broadcast
-
-USDT=0xYOUR_USDT
+# USDT=0x... (the MockUSDT address from step 1a)
 ME=0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266
 
-# Configure USDT in shop
-cast send $SHOP "setSupportedToken(address,bool)" $USDT true --rpc-url $RPC --private-key $PK
-cast send $SHOP "setAssetDecimals(address,uint8)" $USDT 6 --rpc-url $RPC --private-key $PK
-cast send $SHOP "setRates(address,uint256,uint256)" $USDT 2000000000000000000 2000000000000000000 --rpc-url $RPC --private-key $PK
-
-# Mint 100 USDT + approve shop
+# Mint 100 USDT to yourself (this is a mock token, anyone can mint)
 cast send $USDT "mint(address,uint256)" $ME 100000000 --rpc-url $RPC --private-key $PK
+
+# Approve the shop to spend 100 USDT on your behalf
 cast send $USDT "approve(address,uint256)" $SHOP 100000000 --rpc-url $RPC --private-key $PK
 
-# Buy GEN with 50 USDT → expect 100 GEN
+# Buy GEN with 50 USDT → expect 100 GEN (rate: 1 USDT = 2 GEN)
 cast send $SHOP "buyToken(address,uint256,uint256)" $USDT 50000000 0 --rpc-url $RPC --private-key $PK
 ```
 

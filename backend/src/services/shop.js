@@ -75,6 +75,92 @@ export async function getShopLiquidity(knownAssets = []) {
 }
 
 /**
+ * Returns the list of supported assets (ETH + known ERC-20s).
+ *
+ * How it works:
+ * - ETH is always included (it's built into the shop)
+ * - We look at past events in the DB to find ERC-20 addresses that have been used
+ * - For each one, we check if it's still marked as supported in the contract
+ * - We return: address, symbol, decimals, buy/sell rates
+ *
+ * @param knownAssets - array of { address, dbSymbol } from the DB
+ *   dbSymbol is the symbol stored when the event was indexed — used as
+ *   fallback if the on-chain symbol() call fails (e.g. contract gone)
+ */
+export async function getSupportedAssets(knownAssets = []) {
+  // ETH is always first — it's always supported
+  const [ethBuyRate, ethSellRate] = await Promise.all([
+    shop.buyRate(ETH).catch(() => 0n),
+    shop.sellRate(ETH).catch(() => 0n),
+  ]);
+
+  const assets = [
+    {
+      address: ETH,
+      symbol: "ETH",
+      decimals: 18,
+      buyRate: ethers.formatUnits(ethBuyRate, 18),
+      sellRate: ethers.formatUnits(ethSellRate, 18),
+    },
+  ];
+
+  // Track seen symbols to avoid duplicates (e.g. two USDT deploys)
+  const seenSymbols = new Set(["ETH"]);
+  // Track seen addresses to avoid duplicates
+  const seenAddresses = new Set([ETH.toLowerCase()]);
+
+  // Check each known ERC-20
+  for (const { address: addr, dbSymbol } of knownAssets) {
+    const lower = addr.toLowerCase();
+    if (seenAddresses.has(lower)) continue;
+    seenAddresses.add(lower);
+
+    try {
+      // Ask the contract: is this token still supported?
+      const isSupported = await shop.supportedTokens(lower);
+      if (!isSupported) continue;
+
+      // Try on-chain symbol first, fall back to DB symbol
+      let symbol;
+      try {
+        symbol = await getAssetSymbol(lower);
+      } catch {
+        symbol = dbSymbol || lower; // last resort: use address
+      }
+      // If getAssetSymbol returned the raw address, prefer dbSymbol
+      if (symbol === lower && dbSymbol) {
+        symbol = dbSymbol;
+      }
+
+      const decimals = await getAssetDecimals(lower);
+      const [bRate, sRate] = await Promise.all([
+        shop.buyRate(lower).catch(() => 0n),
+        shop.sellRate(lower).catch(() => 0n),
+      ]);
+
+      // Skip if no rates configured
+      if (bRate === 0n && sRate === 0n) continue;
+
+      // Skip duplicate symbols
+      if (seenSymbols.has(symbol)) continue;
+      seenSymbols.add(symbol);
+
+      assets.push({
+        address: lower,
+        symbol,
+        decimals,
+        buyRate: ethers.formatUnits(bRate, 18),
+        sellRate: ethers.formatUnits(sRate, 18),
+      });
+    } catch {
+      // skip tokens we can't read
+    }
+  }
+
+  return assets;
+}
+
+/**
  * Returns GEN total supply.
  */
 export async function getGenTotalSupply() {

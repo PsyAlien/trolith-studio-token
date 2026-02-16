@@ -1,8 +1,31 @@
 import { Router } from "express";
 import prisma from "../db.js";
-import { getShopConfig, getShopLiquidity, getGenTotalSupply } from "../services/shop.js";
+import { getShopConfig, getShopLiquidity, getGenTotalSupply, getSupportedAssets } from "../services/shop.js";
 
 const router = Router();
+
+/**
+ * GET /api/shop/supported-assets
+ * Returns the list of tradeable assets (ETH + any configured ERC-20s).
+ * The frontend uses this to build the asset dropdown dynamically.
+ */
+router.get("/supported-assets", async (_req, res, next) => {
+  try {
+    // Find all unique asset addresses + their symbols from past events
+    // The DB stores the symbol at index-time, so we can use it as fallback
+    // if the on-chain symbol() call fails
+    const events = await prisma.event.groupBy({ by: ["asset", "assetSymbol"] });
+    const knownAssets = events.map((e) => ({
+      address: e.asset,
+      dbSymbol: e.assetSymbol,
+    }));
+
+    const assets = await getSupportedAssets(knownAssets);
+    res.json(assets);
+  } catch (err) {
+    next(err);
+  }
+});
 
 /**
  * GET /api/shop/config

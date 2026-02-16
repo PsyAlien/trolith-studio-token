@@ -4,7 +4,7 @@ import StatCard from "../components/StatCard";
 import ErrorBanner from "../components/ErrorBanner";
 import { Coins, ArrowDownLeft, ArrowUpRight, RefreshCw, Wallet } from "lucide-react";
 import { ethers } from "ethers";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 
 function formatAmount(raw, decimals = 18) {
   try {
@@ -36,6 +36,16 @@ export default function Portfolio() {
   );
 
   const apiError = balError || histError;
+
+  // Auto-refresh every 15 seconds so new trades show up
+  useEffect(() => {
+    if (!isConnected) return;
+    const interval = setInterval(() => {
+      refreshBal();
+      refreshHist();
+    }, 15000);
+    return () => clearInterval(interval);
+  }, [isConnected, refreshBal, refreshHist]);
 
   async function handleRefresh() {
     setSyncing(true);

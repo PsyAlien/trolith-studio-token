@@ -2,16 +2,52 @@ import { useState, useEffect } from "react";
 import { ethers } from "ethers";
 import { useWallet } from "../context/WalletContext";
 import { useContracts } from "../hooks/useContracts";
-import { apiGet, triggerSync } from "../hooks/useApi";
-import { ArrowDownUp, Zap, AlertTriangle, CheckCircle } from "lucide-react";
+import { useApiData, apiGet, triggerSync } from "../hooks/useApi";
+import ErrorBanner from "../components/ErrorBanner";
+import { ArrowDownUp, Zap, AlertTriangle, CheckCircle, RefreshCw } from "lucide-react";
+
+/**
+ * The ETH "zero address" — this is how the contract represents ETH
+ * (since ETH isn't an ERC-20 token, it uses address(0) as a placeholder)
+ */
+const ETH_ADDRESS = "0x0000000000000000000000000000000000000000";
 
 export default function Trade() {
   const { isConnected, address } = useWallet();
   const { getShop, getToken, getErc20, shopAddress, ready } = useContracts();
 
+  // ---------------------------------------------------------------
+  // STEP 1: Fetch supported assets from the backend
+  // ---------------------------------------------------------------
+  // This replaces the old hardcoded "ETH only" dropdown.
+  // The backend reads which tokens the shop supports and returns:
+  //   [ { address, symbol, decimals, buyRate, sellRate }, ... ]
+  //
+  // ETH is always first in the list.
+  const {
+    data: supportedAssets,
+    loading: assetsLoading,
+    error: assetsError,
+    refresh: refreshAssets,
+  } = useApiData("/shop/supported-assets");
+
+  // ---------------------------------------------------------------
+  // STEP 2: Track which asset is selected
+  // ---------------------------------------------------------------
+  // Instead of storing just "ETH" as a string, we store the full
+  // asset object so we have access to address, symbol, and decimals.
+  // We start with null and set it once the list loads.
+  const [selectedAsset, setSelectedAsset] = useState(null);
+
+  // When the asset list loads, default to ETH (first item)
+  useEffect(() => {
+    if (supportedAssets && supportedAssets.length > 0 && !selectedAsset) {
+      setSelectedAsset(supportedAssets[0]);
+    }
+  }, [supportedAssets, selectedAsset]);
+
   // Trade mode
   const [mode, setMode] = useState("buy"); // "buy" | "sell"
-  const [asset, setAsset] = useState("ETH");
   const [amount, setAmount] = useState("");
   const [quote, setQuote] = useState(null);
   const [quoteLoading, setQuoteLoading] = useState(false);
@@ -21,16 +57,21 @@ export default function Trade() {
   const [txMessage, setTxMessage] = useState("");
   const [txHash, setTxHash] = useState(null);
 
-  // Config
+  // Config (for fee display)
   const [config, setConfig] = useState(null);
 
   useEffect(() => {
     apiGet("/shop/config").then(setConfig).catch(console.error);
   }, []);
 
-  // Debounced quote fetching
+  // ---------------------------------------------------------------
+  // STEP 3: Fetch quotes using the selected asset
+  // ---------------------------------------------------------------
+  // The quote URL changes depending on whether the asset is ETH or
+  // an ERC-20 token. We use the asset's ADDRESS to tell the backend
+  // which token we mean.
   useEffect(() => {
-    if (!amount || isNaN(Number(amount)) || Number(amount) <= 0) {
+    if (!amount || isNaN(Number(amount)) || Number(amount) <= 0 || !selectedAsset) {
       setQuote(null);
       return;
     }
@@ -38,16 +79,23 @@ export default function Trade() {
     const timer = setTimeout(async () => {
       setQuoteLoading(true);
       try {
+        const isEth = selectedAsset.address === ETH_ADDRESS;
         let path;
-        if (mode === "buy" && asset === "ETH") {
+
+        if (mode === "buy" && isEth) {
+          // "I want to pay X ETH, how much GEN do I get?"
           path = `/quotes/buy-eth?amount=${amount}`;
-        } else if (mode === "sell" && asset === "ETH") {
+        } else if (mode === "sell" && isEth) {
+          // "I want to sell X GEN, how much ETH do I get?"
           path = `/quotes/sell-eth?gen=${amount}`;
         } else if (mode === "buy") {
-          path = `/quotes/buy-token?asset=${asset}&amount=${amount}`;
+          // "I want to pay X USDT, how much GEN do I get?"
+          path = `/quotes/buy-token?asset=${selectedAsset.address}&amount=${amount}`;
         } else {
-          path = `/quotes/sell-token?asset=${asset}&gen=${amount}`;
+          // "I want to sell X GEN, how much USDT do I get?"
+          path = `/quotes/sell-token?asset=${selectedAsset.address}&gen=${amount}`;
         }
+
         const q = await apiGet(path);
         setQuote(q);
       } catch (err) {
@@ -56,22 +104,28 @@ export default function Trade() {
       } finally {
         setQuoteLoading(false);
       }
-    }, 400);
+    }, 400); // 400ms debounce — waits for user to stop typing
 
     return () => clearTimeout(timer);
-  }, [amount, mode, asset]);
+  }, [amount, mode, selectedAsset]);
 
-  // Reset status when mode/asset changes
+  // Reset when mode or asset changes
   useEffect(() => {
     setTxStatus(null);
     setTxMessage("");
     setTxHash(null);
     setAmount("");
     setQuote(null);
-  }, [mode, asset]);
+  }, [mode, selectedAsset]);
 
+  // ---------------------------------------------------------------
+  // STEP 4: Execute trade using the selected asset
+  // ---------------------------------------------------------------
+  // The trade logic branches on whether we're using ETH or an ERC-20.
+  // For ERC-20 buys, we need an approve step first (telling the token
+  // contract "the shop is allowed to take X tokens from my wallet").
   async function handleTrade() {
-    if (!ready) return;
+    if (!ready || !selectedAsset) return;
 
     setTxStatus("pending");
     setTxMessage("Confirm in wallet...");
@@ -79,14 +133,20 @@ export default function Trade() {
 
     try {
       const shop = getShop();
+      const isEth = selectedAsset.address === ETH_ADDRESS;
       let tx;
 
-      if (mode === "buy" && asset === "ETH") {
+      if (mode === "buy" && isEth) {
+        // --- Buy GEN with ETH ---
+        // Convert human amount (like "0.01") to wei (like 10000000000000000)
         const weiIn = ethers.parseEther(amount);
         tx = await shop.buyETH(0n, { value: weiIn });
-      } else if (mode === "sell" && asset === "ETH") {
+
+      } else if (mode === "sell" && isEth) {
+        // --- Sell GEN for ETH ---
         const genIn = ethers.parseUnits(amount, 18);
-        // Approve first
+
+        // Approve: "Hey GEN token, let the shop take X GEN from me"
         const token = getToken();
         setTxMessage("Approving GEN transfer...");
         const approveTx = await token.approve(shopAddress, genIn);
@@ -94,20 +154,24 @@ export default function Trade() {
 
         setTxMessage("Confirm sell in wallet...");
         tx = await shop.sellToETH(genIn, 0n);
-      } else if (mode === "buy") {
-        // ERC-20 buy
-        const erc20 = getErc20(asset);
-        const decimals = await erc20.decimals();
-        const amountIn = ethers.parseUnits(amount, decimals);
 
-        setTxMessage("Approving token transfer...");
+      } else if (mode === "buy") {
+        // --- Buy GEN with ERC-20 (e.g. USDT) ---
+        const erc20 = getErc20(selectedAsset.address);
+
+        // Use the asset's decimals (USDT = 6, not 18!)
+        const amountIn = ethers.parseUnits(amount, selectedAsset.decimals);
+
+        // Approve: "Hey USDT token, let the shop take X USDT from me"
+        setTxMessage(`Approving ${selectedAsset.symbol} transfer...`);
         const approveTx = await erc20.approve(shopAddress, amountIn);
         await approveTx.wait();
 
         setTxMessage("Confirm buy in wallet...");
-        tx = await shop.buyToken(asset, amountIn, 0n);
+        tx = await shop.buyToken(selectedAsset.address, amountIn, 0n);
+
       } else {
-        // ERC-20 sell
+        // --- Sell GEN for ERC-20 ---
         const genIn = ethers.parseUnits(amount, 18);
         const token = getToken();
 
@@ -116,7 +180,7 @@ export default function Trade() {
         await approveTx.wait();
 
         setTxMessage("Confirm sell in wallet...");
-        tx = await shop.sellToToken(asset, genIn, 0n);
+        tx = await shop.sellToToken(selectedAsset.address, genIn, 0n);
       }
 
       setTxMessage("Transaction submitted, waiting for confirmation...");
@@ -128,8 +192,15 @@ export default function Trade() {
       setAmount("");
       setQuote(null);
 
-      // Trigger sync so backend picks it up
-      triggerSync().catch(console.error);
+      // Sync backend (index new event), then refresh asset data
+      try {
+        await triggerSync();
+        refreshAssets();
+        // Re-fetch config too (supply may have changed)
+        apiGet("/shop/config").then(setConfig).catch(console.error);
+      } catch {
+        // sync failed silently — not critical
+      }
     } catch (err) {
       setTxStatus("error");
       const reason = err.reason || err.message || "Transaction failed";
@@ -139,6 +210,7 @@ export default function Trade() {
   }
 
   const isBuy = mode === "buy";
+  const isEth = selectedAsset?.address === ETH_ADDRESS;
 
   return (
     <div className="max-w-lg mx-auto">
@@ -149,6 +221,9 @@ export default function Trade() {
         </h1>
         <p className="text-gray-500 text-sm mt-1">Buy or sell GEN tokens</p>
       </div>
+
+      {/* Error Banner — shows if asset loading failed */}
+      <ErrorBanner message={assetsError} onRetry={refreshAssets} />
 
       {/* Trade Card */}
       <div className="card border-dark-500">
@@ -176,25 +251,47 @@ export default function Trade() {
           </button>
         </div>
 
-        {/* Asset Selection */}
+        {/* -------------------------------------------------------
+            ASSET SELECTION — the dynamic dropdown!
+            
+            Old code:  <option value="ETH">ETH</option>  (hardcoded)
+            
+            New code:  we .map() over supportedAssets and create 
+                       one <option> per asset automatically.
+            ------------------------------------------------------- */}
         <div className="mb-4">
           <label className="label">
             {isBuy ? "Pay with" : "Receive"}
           </label>
-          <select
-            value={asset}
-            onChange={(e) => setAsset(e.target.value)}
-            className="input-field cursor-pointer"
-          >
-            <option value="ETH">ETH</option>
-            {/* Add more assets here as needed */}
-          </select>
+
+          {assetsLoading ? (
+            /* Show a loading skeleton while fetching */
+            <div className="input-field bg-dark-700 animate-pulse h-11 rounded-lg" />
+          ) : (
+            <select
+              value={selectedAsset?.address || ""}
+              onChange={(e) => {
+                // Find the full asset object that matches the selected address
+                const picked = supportedAssets?.find((a) => a.address === e.target.value);
+                if (picked) setSelectedAsset(picked);
+              }}
+              className="input-field cursor-pointer"
+            >
+              {supportedAssets?.map((asset) => (
+                <option key={asset.address} value={asset.address}>
+                  {asset.symbol}
+                </option>
+              ))}
+            </select>
+          )}
         </div>
 
         {/* Amount Input */}
         <div className="mb-4">
           <label className="label">
-            {isBuy ? `Amount (${asset === "ETH" ? "ETH" : "Token"})` : "Amount (GEN)"}
+            {isBuy
+              ? `Amount (${selectedAsset?.symbol || "..."})`
+              : "Amount (GEN)"}
           </label>
           <input
             type="number"
@@ -217,7 +314,9 @@ export default function Trade() {
         {/* Quote Display */}
         <div className="mb-6">
           <label className="label">
-            {isBuy ? "You receive (GEN)" : `You receive (${asset === "ETH" ? "ETH" : "Token"})`}
+            {isBuy
+              ? "You receive (GEN)"
+              : `You receive (${selectedAsset?.symbol || "..."})`}
           </label>
           <div className="input-field bg-dark-900 text-lg flex items-center justify-between">
             {quoteLoading ? (
@@ -235,19 +334,25 @@ export default function Trade() {
           )}
         </div>
 
-        {/* Rate Display */}
-        {config && asset === "ETH" && (
+        {/* Rate Display — now works for any asset, not just ETH */}
+        {selectedAsset && (
           <div className="bg-dark-700/50 rounded-lg p-3 mb-6">
             <div className="flex justify-between text-xs text-gray-500">
               <span>Rate</span>
               <span className="font-mono">
-                1 ETH = {isBuy ? config.rates?.eth?.buyRate : config.rates?.eth?.sellRate} GEN
+                1 {selectedAsset.symbol} = {isBuy ? selectedAsset.buyRate : selectedAsset.sellRate} GEN
               </span>
             </div>
-            {config.feePercent > 0 && (
+            {config && config.feePercent > 0 && (
               <div className="flex justify-between text-xs text-gray-500 mt-1">
                 <span>Fee</span>
                 <span className="font-mono">{config.feePercent}%</span>
+              </div>
+            )}
+            {!isEth && (
+              <div className="flex justify-between text-xs text-gray-500 mt-1">
+                <span>Decimals</span>
+                <span className="font-mono">{selectedAsset.decimals}</span>
               </div>
             )}
           </div>
@@ -261,7 +366,7 @@ export default function Trade() {
         ) : (
           <button
             onClick={handleTrade}
-            disabled={!amount || !quote || txStatus === "pending"}
+            disabled={!amount || !quote || txStatus === "pending" || !selectedAsset}
             className={`w-full py-3.5 rounded-lg font-bold text-sm transition-all duration-200 ${
               isBuy
                 ? "bg-gradient-to-r from-neon-green/80 to-neon-cyan/80 text-dark-900 hover:opacity-90 shadow-neon-green disabled:opacity-30"
@@ -272,8 +377,8 @@ export default function Trade() {
             {txStatus === "pending"
               ? "Processing..."
               : isBuy
-              ? `Buy GEN`
-              : `Sell GEN`}
+              ? `Buy GEN with ${selectedAsset?.symbol || "..."}`
+              : `Sell GEN for ${selectedAsset?.symbol || "..."}`}
           </button>
         )}
 
