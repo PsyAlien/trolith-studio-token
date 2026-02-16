@@ -76,6 +76,34 @@ export function WalletProvider({ children }) {
     };
   }, [disconnect]);
 
+  // Auto-reconnect on page load
+  // eth_accounts is silent — it checks if MetaMask already has a
+  // connected account without popping up the approval dialog.
+  // If the user previously connected, MetaMask remembers and returns
+  // the account. If not, it returns an empty array and we do nothing.
+  useEffect(() => {
+    if (!window.ethereum) return;
+
+    (async () => {
+      try {
+        const accounts = await window.ethereum.request({ method: "eth_accounts" });
+        if (accounts.length > 0) {
+          // User was previously connected — restore silently
+          const browserProvider = new ethers.BrowserProvider(window.ethereum);
+          const network = await browserProvider.getNetwork();
+          const walletSigner = await browserProvider.getSigner();
+
+          setProvider(browserProvider);
+          setSigner(walletSigner);
+          setAddress(accounts[0].toLowerCase());
+          setChainId(Number(network.chainId));
+        }
+      } catch (err) {
+        console.error("Auto-reconnect failed:", err);
+      }
+    })();
+  }, []);
+
   return (
     <WalletContext.Provider
       value={{
