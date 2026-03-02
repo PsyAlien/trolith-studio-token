@@ -1,0 +1,39 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// Cached on-chain Bought / Sold events
+model Event {
+  id          Int      @id @default(autoincrement())
+  type        String   // "BUY" or "SELL"
+  blockNumber Int
+  txHash      String
+  logIndex    Int
+
+  user        String   // user address (lowercase)
+  asset       String   // payment asset address (lowercase, 0x000...000 = ETH)
+  assetSymbol String   @default("") // resolved symbol (ETH, mUSDT, etc.)
+
+  // All amounts stored as strings to preserve full BigInt precision
+  amountIn    String   @default("0") // asset paid in (BUY) or GEN burned (SELL)
+  amountOut   String   @default("0") // GEN received (BUY) or asset received (SELL)
+
+  createdAt   DateTime @default(now())
+
+  @@unique([txHash, logIndex])
+  @@index([user])
+  @@index([asset])
+  @@index([blockNumber])
+  @@index([type])
+}
+
+// Tracks indexer progress so we don't re-scan from block 0
+model SyncState {
+  id              Int @id @default(1)
+  lastSyncedBlock Int @default(0)
+}
