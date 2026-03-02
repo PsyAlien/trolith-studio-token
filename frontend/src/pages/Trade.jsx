@@ -83,16 +83,16 @@ export default function Trade() {
         let path;
 
         if (mode === "buy" && isEth) {
-          // "I want to pay X ETH, how much GEN do I get?"
+          // "I want to pay X ETH, how much TRI do I get?"
           path = `/quotes/buy-eth?amount=${amount}`;
         } else if (mode === "sell" && isEth) {
-          // "I want to sell X GEN, how much ETH do I get?"
+          // "I want to sell X TRI, how much ETH do I get?"
           path = `/quotes/sell-eth?gen=${amount}`;
         } else if (mode === "buy") {
-          // "I want to pay X USDT, how much GEN do I get?"
+          // "I want to pay X USDT, how much TRI do I get?"
           path = `/quotes/buy-token?asset=${selectedAsset.address}&amount=${amount}`;
         } else {
-          // "I want to sell X GEN, how much USDT do I get?"
+          // "I want to sell X TRI, how much USDT do I get?"
           path = `/quotes/sell-token?asset=${selectedAsset.address}&gen=${amount}`;
         }
 
@@ -137,18 +137,18 @@ export default function Trade() {
       let tx;
 
       if (mode === "buy" && isEth) {
-        // --- Buy GEN with ETH ---
+        // --- Buy TRI with ETH ---
         // Convert human amount (like "0.01") to wei (like 10000000000000000)
         const weiIn = ethers.parseEther(amount);
         tx = await shop.buyETH(0n, { value: weiIn });
 
       } else if (mode === "sell" && isEth) {
-        // --- Sell GEN for ETH ---
+        // --- Sell TRI for ETH ---
         const genIn = ethers.parseUnits(amount, 18);
 
-        // Approve: "Hey GEN token, let the shop take X GEN from me"
+        // Approve: "Hey TRI token, let the shop take X TRI from me"
         const token = getToken();
-        setTxMessage("Approving GEN transfer...");
+        setTxMessage("Approving TRI transfer...");
         const approveTx = await token.approve(shopAddress, genIn);
         await approveTx.wait();
 
@@ -156,7 +156,7 @@ export default function Trade() {
         tx = await shop.sellToETH(genIn, 0n);
 
       } else if (mode === "buy") {
-        // --- Buy GEN with ERC-20 (e.g. USDT) ---
+        // --- Buy TRI with ERC-20 (e.g. USDT) ---
         const erc20 = getErc20(selectedAsset.address);
 
         // Use the asset's decimals (USDT = 6, not 18!)
@@ -171,11 +171,11 @@ export default function Trade() {
         tx = await shop.buyToken(selectedAsset.address, amountIn, 0n);
 
       } else {
-        // --- Sell GEN for ERC-20 ---
+        // --- Sell TRI for ERC-20 ---
         const genIn = ethers.parseUnits(amount, 18);
         const token = getToken();
 
-        setTxMessage("Approving GEN transfer...");
+        setTxMessage("Approving TRI transfer...");
         const approveTx = await token.approve(shopAddress, genIn);
         await approveTx.wait();
 
@@ -219,7 +219,7 @@ export default function Trade() {
         <h1 className="text-3xl font-bold">
           <span className="glow-text-cyan">Trade</span>
         </h1>
-        <p className="text-gray-500 text-sm mt-1">Buy or sell GEN tokens</p>
+        <p className="text-gray-500 text-sm mt-1">Buy or sell TRI tokens</p>
       </div>
 
       {/* Error Banner — shows if asset loading failed */}
@@ -237,7 +237,7 @@ export default function Trade() {
                 : "text-gray-400 hover:text-white"
             }`}
           >
-            Buy GEN
+            Buy TRI
           </button>
           <button
             onClick={() => setMode("sell")}
@@ -247,7 +247,7 @@ export default function Trade() {
                 : "text-gray-400 hover:text-white"
             }`}
           >
-            Sell GEN
+            Sell TRI
           </button>
         </div>
 
@@ -291,7 +291,7 @@ export default function Trade() {
           <label className="label">
             {isBuy
               ? `Amount (${selectedAsset?.symbol || "..."})`
-              : "Amount (GEN)"}
+              : "Amount (TRI)"}
           </label>
           <input
             type="number"
@@ -315,7 +315,7 @@ export default function Trade() {
         <div className="mb-6">
           <label className="label">
             {isBuy
-              ? "You receive (GEN)"
+              ? "You receive (TRI)"
               : `You receive (${selectedAsset?.symbol || "..."})`}
           </label>
           <div className="input-field bg-dark-900 text-lg flex items-center justify-between">
@@ -340,7 +340,7 @@ export default function Trade() {
             <div className="flex justify-between text-xs text-gray-500">
               <span>Rate</span>
               <span className="font-mono">
-                1 {selectedAsset.symbol} = {isBuy ? selectedAsset.buyRate : selectedAsset.sellRate} GEN
+                1 {selectedAsset.symbol} = {isBuy ? selectedAsset.buyRate : selectedAsset.sellRate} TRI
               </span>
             </div>
             {config && config.feePercent > 0 && (
@@ -377,8 +377,8 @@ export default function Trade() {
             {txStatus === "pending"
               ? "Processing..."
               : isBuy
-              ? `Buy GEN with ${selectedAsset?.symbol || "..."}`
-              : `Sell GEN for ${selectedAsset?.symbol || "..."}`}
+              ? `Buy TRI with ${selectedAsset?.symbol || "..."}`
+              : `Sell TRI for ${selectedAsset?.symbol || "..."}`}
           </button>
         )}
 

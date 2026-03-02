@@ -102,7 +102,7 @@ export default function Portfolio() {
       {/* Balance Card */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
         <StatCard
-          label="GEN Balance"
+          label="TRI Balance"
           value={balance?.genBalance || "0"}
           sub="Your current balance"
           color="cyan"
@@ -142,7 +142,7 @@ export default function Portfolio() {
                   <p className={`text-sm font-mono font-semibold ${
                     Number(p.netGen) >= 0 ? "text-neon-green" : "text-neon-pink"
                   }`}>
-                    {Number(p.netGen) >= 0 ? "+" : ""}{p.netGen} GEN
+                    {Number(p.netGen) >= 0 ? "+" : ""}{p.netGen} TRI
                   </p>
                 </div>
               </div>
@@ -201,13 +201,13 @@ export default function Portfolio() {
                         </span>
                         <span className="text-gray-600 mx-1.5">→</span>
                         <span className="text-neon-green">
-                          {formatAmount(e.amountOut, 18)} GEN
+                          {formatAmount(e.amountOut, 18)} TRI
                         </span>
                       </p>
                     ) : (
                       <p className="text-sm font-mono">
                         <span className="text-gray-400">
-                          {formatAmount(e.amountIn, 18)} GEN
+                          {formatAmount(e.amountIn, 18)} TRI
                         </span>
                         <span className="text-gray-600 mx-1.5">→</span>
                         <span className="text-neon-pink">

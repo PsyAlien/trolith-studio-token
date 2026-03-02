@@ -84,13 +84,13 @@ export default function ActivityFeed({ events = [], loading }) {
                       </span>
                       <span className="text-gray-600 mx-1.5">→</span>
                       <span className="text-neon-green">
-                        {formatAmount(e.amountOut, 18)} GEN
+                        {formatAmount(e.amountOut, 18)} TRI
                       </span>
                     </p>
                   ) : (
                     <p className="text-sm font-mono">
                       <span className="text-gray-400">
-                        {formatAmount(e.amountIn, 18)} GEN
+                        {formatAmount(e.amountIn, 18)} TRI
                       </span>
                       <span className="text-gray-600 mx-1.5">→</span>
                       <span className="text-neon-pink">

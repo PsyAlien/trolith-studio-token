@@ -175,7 +175,7 @@ export default function Admin() {
               <p className="text-sm font-mono">{config.maxEthIn}</p>
             </div>
             <div className="bg-dark-700/50 rounded-lg p-3">
-              <p className="text-xs text-gray-500">Max GEN In</p>
+              <p className="text-xs text-gray-500">Max TRI In</p>
               <p className="text-sm font-mono">{config.maxGenIn}</p>
             </div>
           </div>
@@ -255,14 +255,14 @@ export default function Admin() {
               type="number"
               value={buyRate}
               onChange={(e) => setBuyRate(e.target.value)}
-              placeholder="Buy rate (GEN per 1 unit, e.g. 1000)"
+              placeholder="Buy rate (TRI per 1 unit, e.g. 1000)"
               className="input-field"
             />
             <input
               type="number"
               value={sellRate}
               onChange={(e) => setSellRate(e.target.value)}
-              placeholder="Sell rate (GEN per 1 unit, e.g. 1000)"
+              placeholder="Sell rate (TRI per 1 unit, e.g. 1000)"
               className="input-field"
             />
             <button
@@ -302,7 +302,7 @@ export default function Admin() {
               type="number"
               value={maxGenIn}
               onChange={(e) => setMaxGenIn(e.target.value)}
-              placeholder="Max GEN in (e.g. 50)"
+              placeholder="Max TRI in (e.g. 50)"
               className="input-field"
               step="any"
             />

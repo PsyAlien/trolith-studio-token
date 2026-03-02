@@ -77,7 +77,7 @@ export default function Dashboard() {
       {/* Stats Grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
         <StatCard
-          label="GEN Total Supply"
+          label="TRI Total Supply"
           value={summary?.genTotalSupply || "0"}
           sub="Circulating tokens"
           color="cyan"
@@ -86,14 +86,14 @@ export default function Dashboard() {
         <StatCard
           label="Total Buys"
           value={summary?.totalBuys ?? "—"}
-          sub={`${summary?.totalGenMinted || 0} GEN minted`}
+          sub={`${summary?.totalGenMinted || 0} TRI minted`}
           color="green"
           icon={TrendingUp}
         />
         <StatCard
           label="Total Sells"
           value={summary?.totalSells ?? "—"}
-          sub={`${summary?.totalGenBurned || 0} GEN burned`}
+          sub={`${summary?.totalGenBurned || 0} TRI burned`}
           color="pink"
           icon={TrendingDown}
         />
@@ -154,7 +154,7 @@ export default function Dashboard() {
               <div className="bg-dark-700/50 rounded-lg p-3">
                 <p className="text-xs text-gray-500">Buy Rate (ETH)</p>
                 <p className="text-sm font-mono text-gray-200 mt-0.5">
-                  1 ETH = {config.rates?.eth?.buyRate || "—"} GEN
+                  1 ETH = {config.rates?.eth?.buyRate || "—"} TRI
                 </p>
               </div>
               <div className="bg-dark-700/50 rounded-lg p-3">
